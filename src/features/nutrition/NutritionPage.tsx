@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Barcode, ChevronLeft, ChevronRight, Flame, Plus, Search, Star, Trash2, X } from 'lucide-react'
+import { Barcode, Camera, ChevronDown, ChevronLeft, ChevronRight, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { BarcodeScanner } from '@/features/barcode/BarcodeScanner'
 import { nutritionRepository, type FoodDetails, type MacroValues } from '@/db/repositories/nutritionRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
@@ -77,7 +78,133 @@ function FoodSearchSheet({ onClose, onSelect }: { onClose: () => void; onSelect:
 }
 
 export function NutritionPage() {
-  const [date, setDate] = useState(new Date()); const [meal, setMeal] = useState<Meal | undefined>(); const [selectedFood, setSelectedFood] = useState<FoodDetails | undefined>(); const [editingFood, setEditingFood] = useState<FoodDetails | undefined>(); const key = toDateKey(date)
-  const day = useLiveQuery(() => nutritionRepository.getDayNutrition(key), [key]); const setting = useLiveQuery(() => settingsRepository.get('nutrition-goals'), []); const goals = (setting?.value as Goals | undefined) ?? {}; const totals = day?.totals ?? emptyMacros(); const remaining = goals.calories == null ? undefined : goals.calories - totals.ENERGY_KCAL
-  return <div className="space-y-5 pb-3 pt-2"><section><p className="eyebrow">Nutrition</p><h1 className="page-title">Daily intake</h1><div className="mt-2 flex items-center justify-between"><button aria-label="Previous day" className="week-button" onClick={() => setDate(addDays(date, -1))}><ChevronLeft className="size-5" /></button><p className="text-sm font-medium text-slate-300">{formatLongDate(date)}</p><button aria-label="Next day" className="week-button" onClick={() => setDate(addDays(date, 1))}><ChevronRight className="size-5" /></button></div></section><section className="dashboard-card"><div className="flex items-start justify-between"><div><p className="eyebrow">Calories</p><p className="mt-1 text-3xl font-semibold tracking-[-0.05em] text-slate-50">{Math.round(totals.ENERGY_KCAL)} <span className="text-base font-medium text-slate-500">/ {goals.calories ?? '—'} kcal</span></p>{remaining !== undefined && <p className="mt-1 text-sm text-sky-200">{Math.abs(Math.round(remaining))} kcal {remaining >= 0 ? 'remaining' : 'over target'}</p>}</div><span className="grid size-11 place-items-center rounded-2xl bg-sky-400/10 text-sky-300"><Flame className="size-5" /></span></div><div className="mt-5 grid grid-cols-3 gap-3">{[['Protein', totals.PROTEIN, goals.protein], ['Carbs', totals.CARBOHYDRATE, goals.carbs], ['Fat', totals.TOTAL_FAT, goals.fat]].map(([label, value, target]) => <div key={label as string}><p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">{label as string}</p><p className="mt-1 text-sm font-semibold text-slate-200">{Math.round(Number(value) * 10) / 10}<span className="font-normal text-slate-500"> / {target ?? '—'}g</span></p></div>)}</div></section><div className="space-y-3">{meals.map(({ key: mealKey, title }) => { const entries = day?.entries.filter((entry) => entry.meal === mealKey) ?? []; const kcal = entries.reduce((sum, entry) => sum + entry.calories, 0); return <section className="meal-card" key={mealKey}><div className="flex items-center justify-between"><div><p className="eyebrow">{title}</p><p className="mt-1 text-sm font-semibold text-slate-300">{kcal ? `${Math.round(kcal)} kcal` : 'No foods logged'}</p></div><button className="button-quiet" onClick={() => setMeal(mealKey)}><Plus className="size-4" />Add food</button></div>{entries.length > 0 && <div className="mt-3 border-t border-white/[0.07] pt-2">{entries.map((entry) => <div className="food-log-row" key={entry.id}><span className="min-w-0 flex-1"><strong>{String(entry.foodSnapshot.name ?? 'Food')}</strong><small>{entry.servingQuantity} {entry.servingUnit}</small></span><span className="text-right text-sm font-semibold text-slate-300">{entry.calories}<small>{entry.protein}g protein</small></span><button aria-label={`Delete ${String(entry.foodSnapshot.name ?? 'food')}`} className="set-delete-button" onClick={() => { if (window.confirm('Delete this food entry?')) void nutritionRepository.deleteFoodLog(entry.id) }}><Trash2 className="size-4" /></button></div>)}</div>}</section> })}</div>{meal && !selectedFood && <FoodSearchSheet onClose={() => setMeal(undefined)} onSelect={setSelectedFood} />}{meal && selectedFood && <FoodLogSheet date={key} food={selectedFood} meal={meal} onEdit={setEditingFood} onClose={() => { setSelectedFood(undefined); setMeal(undefined) }} />}{editingFood && <CustomFoodSheet existing={editingFood} onClose={() => setEditingFood(undefined)} onCreated={(food) => { setEditingFood(undefined); setSelectedFood(food) }} onDeleted={() => { setEditingFood(undefined); setSelectedFood(undefined); setMeal(undefined) }} />}</div>
+  const [date, setDate] = useState(new Date())
+  const [meal, setMeal] = useState<Meal | undefined>()
+  const [selectedFood, setSelectedFood] = useState<FoodDetails | undefined>()
+  const [editingFood, setEditingFood] = useState<FoodDetails | undefined>()
+  const [summaryMode, setSummaryMode] = useState<'consumed' | 'remaining'>('consumed')
+  const [showBreakdown, setShowBreakdown] = useState(false)
+  const [expandedMeals, setExpandedMeals] = useState<Set<Meal>>(new Set())
+  const key = toDateKey(date)
+  const day = useLiveQuery(() => nutritionRepository.getDayNutrition(key), [key])
+  const setting = useLiveQuery(() => settingsRepository.get('nutrition-goals'), [])
+  const goals = (setting?.value as Goals | undefined) ?? {}
+  const totals = day?.totals ?? emptyMacros()
+  const isToday = key === toDateKey(new Date())
+  const dateLabel = isToday
+    ? `Today, ${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date)}`
+    : formatLongDate(date)
+  const currentHour = new Date().getHours()
+  const quickMeal: Meal = currentHour < 11 ? 'breakfast' : currentHour < 16 ? 'lunch' : currentHour < 21 ? 'dinner' : 'snacks'
+
+  const percentage = (value: number, target?: number) => target && target > 0 ? Math.min(100, Math.max(0, (value / target) * 100)) : 0
+  const shown = (value: number, target?: number) => summaryMode === 'remaining' && target != null ? Math.max(0, target - value) : value
+  const formatMacro = (value: number) => Math.round(value * 10) / 10
+  const caloriePercent = percentage(totals.ENERGY_KCAL, goals.calories)
+  const displayedCalories = Math.round(shown(totals.ENERGY_KCAL, goals.calories))
+
+  function openMeal(mealKey: Meal) {
+    setExpandedMeals((current) => new Set(current).add(mealKey))
+    setMeal(mealKey)
+  }
+
+  function toggleMeal(mealKey: Meal) {
+    setExpandedMeals((current) => {
+      const next = new Set(current)
+      if (next.has(mealKey)) next.delete(mealKey)
+      else next.add(mealKey)
+      return next
+    })
+  }
+
+  function openQuickSearch() {
+    openMeal(quickMeal)
+  }
+
+  const macroItems = [
+    { key: 'protein', label: 'Protein', value: totals.PROTEIN, target: goals.protein, color: 'violet' },
+    { key: 'carbs', label: 'Carbs', value: totals.CARBOHYDRATE, target: goals.carbs, color: 'mint' },
+    { key: 'fat', label: 'Fat', value: totals.TOTAL_FAT, target: goals.fat, color: 'amber' }
+  ] as const
+
+  return <div className="nutrition-page pb-3 pt-2">
+    <section className="nutrition-date-row" aria-label="Selected nutrition date">
+      <button aria-label="Previous day" className="nutrition-date-button" onClick={() => setDate(addDays(date, -1))}><ChevronLeft /></button>
+      <h1>{dateLabel}</h1>
+      <button aria-label="Next day" className="nutrition-date-button" onClick={() => setDate(addDays(date, 1))}><ChevronRight /></button>
+    </section>
+
+    <section className="nutrition-summary-card" aria-label="Daily nutrition summary">
+      <div className="nutrition-summary-tabs" role="group" aria-label="Nutrition summary display">
+        <button aria-pressed={summaryMode === 'consumed'} className={summaryMode === 'consumed' ? 'active' : ''} onClick={() => setSummaryMode('consumed')}>Consumed</button>
+        <button aria-pressed={summaryMode === 'remaining'} className={summaryMode === 'remaining' ? 'active' : ''} onClick={() => setSummaryMode('remaining')}>Remaining</button>
+      </div>
+
+      <div className="nutrition-calorie-total">
+        <strong>{displayedCalories}</strong>
+        <span>/ {goals.calories ?? '—'} kcal</span>
+      </div>
+      <div aria-label={`${Math.round(caloriePercent)} percent of calorie goal consumed`} aria-valuemax={100} aria-valuemin={0} aria-valuenow={Math.round(caloriePercent)} className="nutrition-calorie-track" role="progressbar">
+        <i style={{ width: `${caloriePercent}%` }} />
+      </div>
+
+      <div className="nutrition-macro-grid">
+        {macroItems.map((macro) => {
+          const progress = percentage(macro.value, macro.target)
+          return <div className="nutrition-macro" key={macro.key}>
+            <p>{macro.label}</p>
+            <div aria-label={`${Math.round(progress)} percent of ${macro.label.toLowerCase()} goal consumed`} aria-valuemax={100} aria-valuemin={0} aria-valuenow={Math.round(progress)} className={`nutrition-macro-track nutrition-macro-${macro.color}`} role="progressbar"><i style={{ width: `${progress}%` }} /></div>
+            <strong>{formatMacro(shown(macro.value, macro.target))} <span>/ {macro.target ?? '—'}g</span></strong>
+          </div>
+        })}
+      </div>
+
+      <button aria-expanded={showBreakdown} className="nutrition-breakdown-toggle" onClick={() => setShowBreakdown((current) => !current)}>Full breakdown <ChevronDown className={showBreakdown ? 'rotate-180' : ''} /></button>
+      {showBreakdown && <div className="nutrition-breakdown">
+        <span><small>Fiber</small><strong>{formatMacro(totals.FIBER)}g</strong></span>
+        <span><small>Sugar</small><strong>{formatMacro(totals.TOTAL_SUGAR)}g</strong></span>
+        <span><small>Sodium</small><strong>{Math.round(totals.SODIUM)}mg</strong></span>
+      </div>}
+    </section>
+
+    <div className="nutrition-food-heading">
+      <h2>Food Log</h2>
+      <Link aria-label="Edit nutrition goals" to="/settings"><Settings /></Link>
+    </div>
+
+    <div className="nutrition-meals">
+      {meals.map(({ key: mealKey, title }) => {
+        const entries = day?.entries.filter((entry) => entry.meal === mealKey) ?? []
+        const kcal = entries.reduce((sum, entry) => sum + entry.calories, 0)
+        const protein = entries.reduce((sum, entry) => sum + entry.protein, 0)
+        const expanded = expandedMeals.has(mealKey)
+        return <section className="nutrition-meal-card" key={mealKey}>
+          <div className="nutrition-meal-header">
+            <button aria-expanded={expanded} className="nutrition-meal-toggle" onClick={() => toggleMeal(mealKey)}>
+              <ChevronDown className={expanded ? '' : '-rotate-90'} />
+              <strong>{title}</strong>
+            </button>
+            <div className="nutrition-meal-totals"><span>{Math.round(kcal)} Cal</span><span>{formatMacro(protein)} P</span></div>
+            <button aria-label={`Add food to ${title}`} className="nutrition-meal-add" onClick={() => openMeal(mealKey)}><Plus /></button>
+          </div>
+          {expanded && <div className="nutrition-meal-entries">
+            {entries.length ? entries.map((entry) => <div className="food-log-row" key={entry.id}>
+              <span className="min-w-0 flex-1"><strong>{String(entry.foodSnapshot.name ?? 'Food')}</strong><small>{entry.servingQuantity} {entry.servingUnit}</small></span>
+              <span className="text-right text-sm font-semibold text-slate-300">{entry.calories} Cal<small>{entry.protein}g protein</small></span>
+              <button aria-label={`Delete ${String(entry.foodSnapshot.name ?? 'food')}`} className="set-delete-button" onClick={() => { if (window.confirm('Delete this food entry?')) void nutritionRepository.deleteFoodLog(entry.id) }}><Trash2 className="size-4" /></button>
+            </div>) : <p className="nutrition-meal-empty">No foods logged yet.</p>}
+          </div>}
+        </section>
+      })}
+    </div>
+
+    <div className="nutrition-search-dock">
+      <button onClick={openQuickSearch}><Search /><span>Search for a food</span></button>
+      <button aria-label="Scan a food barcode" onClick={openQuickSearch}><Camera /></button>
+    </div>
+
+    {meal && !selectedFood && <FoodSearchSheet onClose={() => setMeal(undefined)} onSelect={setSelectedFood} />}
+    {meal && selectedFood && <FoodLogSheet date={key} food={selectedFood} meal={meal} onEdit={setEditingFood} onClose={() => { setSelectedFood(undefined); setMeal(undefined) }} />}
+    {editingFood && <CustomFoodSheet existing={editingFood} onClose={() => setEditingFood(undefined)} onCreated={(food) => { setEditingFood(undefined); setSelectedFood(food) }} onDeleted={() => { setEditingFood(undefined); setSelectedFood(undefined); setMeal(undefined) }} />}
+  </div>
 }

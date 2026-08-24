@@ -94,7 +94,7 @@ export const workoutRepository = {
       db.workoutSessionExercises.where('exerciseId').equals(id).count()
     ])
     if (templateUse || sessionUse) {
-      throw new Error('This exercise is used by a template or workout history and cannot be deleted.')
+      throw new Error('This exercise is used by a workout or workout history and cannot be deleted.')
     }
     await db.exercises.delete(id)
   },
@@ -212,7 +212,7 @@ export const workoutRepository = {
     let templateExercises: WorkoutTemplateExercise[] = []
     if (templateId) {
       const templateDetails = await this.getTemplateDetails(templateId)
-      if (!templateDetails) throw new Error('That workout template no longer exists.')
+      if (!templateDetails) throw new Error('That workout no longer exists.')
       template = templateDetails.template
       templateExercises = templateDetails.exercises
     }

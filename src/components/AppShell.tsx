@@ -17,19 +17,20 @@ const navigation = [
 export function AppShell({ children }: AppShellProps) {
   const location = useLocation()
   const isSettings = location.pathname === '/settings'
+  const isNutrition = location.pathname === '/nutrition'
 
   return (
     <div className="app-canvas">
-      <header className="sticky top-0 z-20 flex items-center justify-between bg-[rgba(17,24,40,0.9)] px-5 pb-3 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur-xl">
-        <AppLogo />
-        <NavLink
-          aria-label="Open settings"
-          className={({ isActive }) => `icon-button ${isActive || isSettings ? 'icon-button-active' : ''}`}
-          to="/settings"
-        >
-          <Settings className="size-[19px]" strokeWidth={2} />
-        </NavLink>
-      </header>
+      {!isNutrition && <header className="app-header sticky top-0 z-20 flex items-center justify-between px-5 pb-3 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur-xl">
+          <AppLogo />
+          <NavLink
+            aria-label="Open settings"
+            className={({ isActive }) => `icon-button ${isActive || isSettings ? 'icon-button-active' : ''}`}
+            to="/settings"
+          >
+            <Settings className="size-[19px]" strokeWidth={2} />
+          </NavLink>
+        </header>}
 
       <main className="mx-auto w-full max-w-lg px-5 pb-[calc(6.75rem+env(safe-area-inset-bottom))]">{children}</main>
 

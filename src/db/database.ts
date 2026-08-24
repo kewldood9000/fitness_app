@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie'
-import { migrateToV1, migrateToV2 } from './migrations'
-import { schemaV1, schemaV2 } from './schema'
+import { migrateToV1, migrateToV2, migrateToV3 } from './migrations'
+import { schemaV1, schemaV2, schemaV3 } from './schema'
+import { createBuiltinExercises } from './seed/exerciseCatalog'
 import type {
   AppMetadata,
   AppSetting,
@@ -45,8 +46,10 @@ class FitnessDatabase extends Dexie {
 
   constructor() {
     super('pocket-pace')
+    this.on('populate', (transaction) => transaction.table('exercises').bulkAdd(createBuiltinExercises(new Date().toISOString())))
     this.version(1).stores(schemaV1).upgrade(migrateToV1)
     this.version(2).stores(schemaV2).upgrade(migrateToV2)
+    this.version(3).stores(schemaV3).upgrade(migrateToV3)
   }
 }
 

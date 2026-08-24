@@ -1,46 +1,128 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { BarChart3, Plus, Scale, X } from 'lucide-react'
+import { BarChart3, Plus, Scale, Trash2, X } from 'lucide-react'
 import { useId, useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { progressRepository, movingAverage } from '@/db/repositories/progressRepository'
-import { workoutRepository } from '@/db/repositories/workoutRepository'
+import { progressRepository, weeklyAverage } from '@/db/repositories/progressRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
-import { toDateKey } from '@/utils/dates'
+import { workoutRepository } from '@/db/repositories/workoutRepository'
+import { calculateWeightGoalProgress, convertWeight, plannedWeightForDate, type ProgressGoalSettings } from '@/utils/calorieEstimator'
+import { addDays, toDateKey } from '@/utils/dates'
 
 type Range = '1m' | '3m' | '6m' | 'all'
-interface ProgressGoals { startingWeight?: number; goalWeight?: number; weeklyChange?: number }
+type TrendMode = 'daily' | 'weekly'
 
 function Sheet({ onClose, defaultUnit = 'lb' }: { onClose: () => void; defaultUnit?: 'lb' | 'kg' }) {
-  const [weight, setWeight] = useState(''); const [date, setDate] = useState(toDateKey(new Date())); const [note, setNote] = useState(''); const [unit, setUnit] = useState<'lb' | 'kg'>(defaultUnit)
+  const [weight, setWeight] = useState('')
+  const [date, setDate] = useState(toDateKey(new Date()))
+  const [note, setNote] = useState('')
+  const [unit, setUnit] = useState<'lb' | 'kg'>(defaultUnit)
   const titleId = useId()
-  async function save() { const value = Number(weight); if (!value) return; await progressRepository.logWeight(date, value, unit, note); onClose() }
-  return <div aria-labelledby={titleId} aria-modal="true" className="modal-backdrop" role="dialog"><div className="modal-panel"><div className="flex items-center justify-between px-5 pb-4 pt-5"><h2 className="text-lg font-semibold text-slate-50" id={titleId}>Log bodyweight</h2><button aria-label="Close" className="workout-icon-button" onClick={onClose}><X className="size-4" /></button></div><div className="space-y-3 px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"><div className="grid grid-cols-[1fr_5rem] gap-3"><label className="field-label">Weight<input autoFocus className="field-input" inputMode="decimal" onChange={(event) => setWeight(event.target.value)} placeholder="0.0" type="number" value={weight} /></label><label className="field-label">Unit<select className="field-input" onChange={(event) => setUnit(event.target.value as 'lb' | 'kg')} value={unit}><option value="lb">lb</option><option value="kg">kg</option></select></label></div><label className="field-label">Date<input className="field-input" onChange={(event) => setDate(event.target.value)} type="date" value={date} /></label><label className="field-label">Note <span className="font-normal text-slate-600">(optional)</span><input className="field-input" onChange={(event) => setNote(event.target.value)} placeholder="Optional note" value={note} /></label><button className="button-primary mt-2 w-full" disabled={!Number(weight)} onClick={() => void save()}>Save weigh-in</button></div></div></div>
+
+  async function save() {
+    const value = Number(weight)
+    if (!value) return
+    await progressRepository.logWeight(date, value, unit, note)
+    onClose()
+  }
+
+  return <div aria-labelledby={titleId} aria-modal="true" className="modal-backdrop" role="dialog"><div className="modal-panel">
+    <div className="flex items-center justify-between px-5 pb-4 pt-5"><h2 className="text-lg font-semibold text-slate-50" id={titleId}>Log bodyweight</h2><button aria-label="Close" className="workout-icon-button" onClick={onClose}><X className="size-4" /></button></div>
+    <div className="space-y-3 px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
+      <div className="grid grid-cols-[1fr_5rem] gap-3"><label className="field-label">Weight<input autoFocus className="field-input" inputMode="decimal" min="0.1" onChange={(event) => setWeight(event.target.value)} placeholder="0.0" step="0.1" type="number" value={weight} /></label><label className="field-label">Unit<select className="field-input" onChange={(event) => setUnit(event.target.value as 'lb' | 'kg')} value={unit}><option value="lb">lb</option><option value="kg">kg</option></select></label></div>
+      <label className="field-label">Date<input className="field-input" onChange={(event) => setDate(event.target.value)} type="date" value={date} /></label>
+      <label className="field-label">Note <span className="font-normal text-slate-600">(optional)</span><input className="field-input" onChange={(event) => setNote(event.target.value)} placeholder="Optional note" value={note} /></label>
+      <button className="button-primary mt-2 w-full" disabled={!Number(weight)} onClick={() => void save()}>Save weigh-in</button>
+    </div>
+  </div></div>
 }
 
 function number(value?: number, digits = 1) { return value == null ? '—' : Number(value.toFixed(digits)).toString() }
 function change(current?: number, past?: number) { return current == null || past == null ? undefined : current - past }
 
 export function ProgressPage() {
-  const [range, setRange] = useState<Range>('3m'); const [logging, setLogging] = useState(false); const [selectedExerciseId, setSelectedExerciseId] = useState('')
+  const [range, setRange] = useState<Range>('3m')
+  const [trendMode, setTrendMode] = useState<TrendMode>('weekly')
+  const [logging, setLogging] = useState(false)
+  const [showAllWeighIns, setShowAllWeighIns] = useState(false)
+  const [selectedExerciseId, setSelectedExerciseId] = useState('')
   const logs = useLiveQuery(() => progressRepository.getWeightLogs(), [])
   const goalsSetting = useLiveQuery(() => settingsRepository.get('progress-goals'), [])
   const workoutSetting = useLiveQuery(() => settingsRepository.get('workout-preferences'), [])
   const exercises = useLiveQuery(() => workoutRepository.getExercises(), [])
   const strength = useLiveQuery(() => selectedExerciseId ? progressRepository.getStrengthProgress(selectedExerciseId) : Promise.resolve([]), [selectedExerciseId])
-  const goals = (goalsSetting?.value as ProgressGoals | undefined) ?? {}; const preferredUnit = (workoutSetting?.value as { unit?: 'lb' | 'kg' } | undefined)?.unit ?? 'lb'
-  const visibleWeights = useMemo(() => { const all = movingAverage(logs ?? []); if (range === 'all') return all; const days = range === '1m' ? 31 : range === '3m' ? 92 : 184; const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days); return all.filter((item) => new Date(`${item.date}T12:00:00`) >= cutoff) }, [logs, range])
-  const trajectoryFor = (date: string) => {
-    const baseline = goals.startingWeight ?? logs?.[0]?.weight
-    const baselineDate = logs?.[0]?.date
-    if (baseline == null || !baselineDate || goals.weeklyChange == null) return undefined
-    const weeks = (new Date(`${date}T12:00:00`).getTime() - new Date(`${baselineDate}T12:00:00`).getTime()) / (7 * 24 * 60 * 60 * 1000)
-    const planned = baseline + goals.weeklyChange * weeks
-    if (goals.goalWeight == null) return planned
-    return goals.weeklyChange >= 0 ? Math.min(planned, goals.goalWeight) : Math.max(planned, goals.goalWeight)
+  const goals = (goalsSetting?.value as ProgressGoalSettings | undefined) ?? {}
+  const preferredUnit = (workoutSetting?.value as { unit?: 'lb' | 'kg' } | undefined)?.unit ?? 'lb'
+  const current = logs?.at(-1)
+  const unit = current?.unit ?? preferredUnit
+  const normalizedLogs = useMemo(() => (logs ?? []).map((item) => ({ ...item, weight: convertWeight(item.weight, item.unit, unit), unit })), [logs, unit])
+  const visibleWeights = useMemo(() => {
+    if (range === 'all') return normalizedLogs
+    const days = range === '1m' ? 31 : range === '3m' ? 92 : 184
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - days)
+    return normalizedLogs.filter((item) => new Date(`${item.date}T12:00:00`) >= cutoff)
+  }, [normalizedLogs, range])
+  const actualPoints = trendMode === 'weekly' ? weeklyAverage(visibleWeights) : visibleWeights.map((item) => ({ date: item.date, weight: item.weight }))
+  const chartPoints = new Map<string, { dateKey: string; date: string; weight?: number; goal?: number }>()
+  const labelFor = (date: string) => new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(`${date}T12:00:00`))
+  actualPoints.forEach((item) => chartPoints.set(item.date, { dateKey: item.date, date: labelFor(item.date), weight: Math.round(item.weight * 10) / 10 }))
+  if (goals.trendStartDate) {
+    const goalDates = new Set(actualPoints.map((item) => item.date))
+    let start = new Date(`${goals.trendStartDate}T12:00:00`)
+    if (range !== 'all') {
+      const days = range === '1m' ? 31 : range === '3m' ? 92 : 184
+      const cutoff = addDays(new Date(), -days)
+      if (start < cutoff) start = cutoff
+    }
+    const end = addDays(new Date(), 28)
+    for (let date = start; date <= end; date = addDays(date, 7)) goalDates.add(toDateKey(date))
+    goalDates.add(toDateKey(new Date()))
+    goalDates.forEach((date) => {
+      const planned = plannedWeightForDate(goals, date)
+      if (planned == null) return
+      const goal = convertWeight(planned, goals.weightUnit ?? unit, unit)
+      chartPoints.set(date, { ...(chartPoints.get(date) ?? { dateKey: date, date: labelFor(date) }), goal })
+    })
   }
-  const chartData = visibleWeights.map((item) => ({ date: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(`${item.date}T12:00:00`)), weight: item.weight, average: item.average, goal: trajectoryFor(item.date) }))
-  const current = logs?.at(-1); const first = logs?.[0]; const lookback = (days: number) => current ? logs?.filter((item) => new Date(`${item.date}T12:00:00`) <= new Date(new Date(`${current.date}T12:00:00`).getTime() - days * 86_400_000)).at(-1) : undefined; const sevenPast = lookback(7); const thirtyPast = lookback(30); const unit = current?.unit ?? preferredUnit
+  const chartData = [...chartPoints.values()].sort((firstPoint, secondPoint) => firstPoint.dateKey.localeCompare(secondPoint.dateKey))
+  const currentDisplay = normalizedLogs.at(-1)
+  const first = normalizedLogs[0]
+  const lookback = (days: number) => currentDisplay ? normalizedLogs.filter((item) => new Date(`${item.date}T12:00:00`) <= new Date(new Date(`${currentDisplay.date}T12:00:00`).getTime() - days * 86_400_000)).at(-1) : undefined
+  const sevenPast = lookback(7)
+  const thirtyPast = lookback(30)
   const strengthChart = (strength ?? []).map((item) => ({ date: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(`${item.date}T12:00:00`)), top: item.topWeight, volume: item.volume, oneRm: item.estimated1RM }))
-  const latestStrength = strength?.at(-1); const firstStrength = strength?.[0]; const latestPrs = latestStrength ? [latestStrength.isWeightPr && 'Weight PR', latestStrength.isRepPr && 'Rep PR', latestStrength.isVolumePr && 'Volume PR', latestStrength.isEstimated1RMPr && '1RM PR'].filter(Boolean) : []
-  return <div className="space-y-5 pb-3 pt-2"><section className="flex items-end justify-between"><div><p className="eyebrow">Progress</p><h1 className="page-title">Trends, not noise</h1><p className="mt-1.5 text-sm text-slate-400">Bodyweight and strength remain private on this device.</p></div><button aria-label="Log bodyweight" className="round-add-button" onClick={() => setLogging(true)}><Plus className="size-5" /></button></section><section className="dashboard-card"><div className="flex items-start justify-between"><div><p className="eyebrow">Current bodyweight</p><p className="mt-1 text-3xl font-semibold tracking-[-0.05em] text-slate-50">{current ? `${number(current.weight)} ${unit}` : '—'}</p><p className="mt-1 text-sm text-slate-500">{logs?.length ? `${logs.length} weigh-ins logged` : 'Log your first weigh-in'}</p></div><span className="grid size-11 place-items-center rounded-2xl bg-emerald-400/10 text-emerald-300"><Scale className="size-5" /></span></div><div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/[0.07] pt-4">{[['7-day', change(current?.weight, sevenPast?.weight)], ['30-day', change(current?.weight, thirtyPast?.weight)], ['Total', change(current?.weight, first?.weight)], ['Goal', goals.goalWeight == null || current == null ? undefined : goals.goalWeight - current.weight]].map(([label, value]) => <div key={label as string}><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label as string}</p><p className="mt-1 text-sm font-semibold text-slate-200">{value === undefined ? '—' : `${Number(value).toFixed(1)} ${unit}`}</p></div>)}</div></section><section className="chart-card"><div className="flex items-center justify-between gap-3"><h2 className="section-title">Bodyweight trend</h2><div className="flex rounded-lg bg-slate-800 p-0.5">{(['1m', '3m', '6m', 'all'] as Range[]).map((item) => <button className={`range-button ${range === item ? 'range-button-active' : ''}`} key={item} onClick={() => setRange(item)}>{item}</button>)}</div></div>{chartData.length < 2 ? <div className="chart-empty"><Scale className="size-5" />Log at least two weigh-ins to reveal your trend line.</div> : <div className="mt-4 h-56"><ResponsiveContainer height="100%" width="100%"><LineChart data={chartData} margin={{ top: 5, right: 4, bottom: 0, left: -18 }}><CartesianGrid stroke="#334155" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" minTickGap={30} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} /><YAxis domain={['dataMin - 1', 'dataMax + 1']} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} /><Tooltip contentStyle={{ border: '1px solid #334155', borderRadius: 12, background: '#182238', color: '#e8edf5' }} /><Line dataKey="weight" dot={{ r: 2, fill: '#72baff' }} name={`Weight (${unit})`} stroke="#72baff" strokeWidth={2} type="monotone" /><Line dataKey="average" dot={false} name="7-day avg" stroke="#a78bfa" strokeWidth={2} type="monotone" />{goals.weeklyChange != null && <Line dataKey="goal" dot={false} name="Goal trajectory" stroke="#34d399" strokeDasharray="5 4" strokeWidth={1.5} type="monotone" />}</LineChart></ResponsiveContainer></div>}</section><section className="chart-card"><div className="flex items-center justify-between gap-3"><div><h2 className="section-title">Strength progress</h2><p className="mt-1 text-xs text-slate-500">Top working set and estimated 1RM where applicable.</p></div><BarChart3 className="size-5 text-violet-300" /></div><label className="field-label mt-4">Exercise<select className="field-input" onChange={(event) => setSelectedExerciseId(event.target.value)} value={selectedExerciseId}><option value="">Choose an exercise</option>{exercises?.map((exercise) => <option key={exercise.id} value={exercise.id}>{exercise.name}</option>)}</select></label>{!selectedExerciseId ? <div className="chart-empty">Choose an exercise to see completed-session strength history.</div> : strengthChart.length < 1 ? <div className="chart-empty">Complete a session with this exercise to begin tracking it.</div> : <><div className="mt-4 grid grid-cols-2 gap-3"><div className="rounded-xl bg-slate-800/65 p-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Latest top set</p><p className="mt-1 text-lg font-semibold text-slate-200">{latestStrength?.topWeight} × {latestStrength?.topReps}</p></div><div className="rounded-xl bg-slate-800/65 p-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Change</p><p className="mt-1 text-lg font-semibold text-slate-200">{firstStrength && latestStrength ? `${number(latestStrength.topWeight - firstStrength.topWeight)} ${preferredUnit}` : '—'}</p></div></div>{latestPrs.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{latestPrs.map((label) => <span className="rounded-full bg-amber-300/10 px-2.5 py-1 text-xs font-bold text-amber-200" key={String(label)}>{label}</span>)}</div>}<div className="mt-4 h-52"><ResponsiveContainer height="100%" width="100%"><LineChart data={strengthChart} margin={{ top: 5, right: 4, bottom: 0, left: -18 }}><CartesianGrid stroke="#334155" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" minTickGap={30} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} /><YAxis stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} /><Tooltip contentStyle={{ border: '1px solid #334155', borderRadius: 12, background: '#182238', color: '#e8edf5' }} /><Line dataKey="top" dot={{ r: 2, fill: '#a78bfa' }} name="Top weight" stroke="#a78bfa" strokeWidth={2} type="monotone" /><Line dataKey="oneRm" dot={false} name="Est. 1RM" stroke="#fbbf24" strokeWidth={1.5} type="monotone" /></LineChart></ResponsiveContainer></div></>}</section>{logging && <Sheet defaultUnit={preferredUnit} onClose={() => setLogging(false)} />}</div>
+  const latestStrength = strength?.at(-1)
+  const firstStrength = strength?.[0]
+  const latestPrs = latestStrength ? [latestStrength.isWeightPr && 'Weight PR', latestStrength.isRepPr && 'Rep PR', latestStrength.isVolumePr && 'Volume PR', latestStrength.isEstimated1RMPr && '1RM PR'].filter(Boolean) : []
+  const goalWeightDisplay = goals.goalWeight == null ? undefined : convertWeight(goals.goalWeight, goals.weightUnit ?? unit, unit)
+  const goalProgress = currentDisplay ? calculateWeightGoalProgress(goals, currentDisplay.weight, unit) : undefined
+  const weighInsNewestFirst = [...(logs ?? [])].reverse()
+  const displayedWeighIns = showAllWeighIns ? weighInsNewestFirst : weighInsNewestFirst.slice(0, 5)
+
+  return <div className="space-y-5 pb-3 pt-2">
+    <section><p className="eyebrow">Progress</p><h1 className="page-title">Trends, not noise</h1><p className="mt-1.5 text-sm text-slate-400">Bodyweight and strength remain private on this device.</p></section>
+    <button className="settings-row w-full rounded-[1.25rem] border border-white/[0.07]" onClick={() => setLogging(true)}><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-sky-400/10 text-sky-300"><Scale className="size-[18px]" /></span><span className="min-w-0 flex-1 text-left"><strong>Log bodyweight</strong><small>Add today’s weigh-in and track your trend</small></span><Plus className="size-5 shrink-0 text-sky-300" /></button>
+    <section className="dashboard-card">
+      <div className="flex items-start justify-between"><div><p className="eyebrow">Current bodyweight</p><p className="mt-1 text-3xl font-semibold tracking-[-0.05em] text-slate-50">{currentDisplay ? `${number(currentDisplay.weight)} ${unit}` : '—'}</p><p className="mt-1 text-sm text-slate-500">{logs?.length ? `${logs.length} weigh-ins logged` : 'Log your first weigh-in'}</p></div><span className="grid size-11 place-items-center rounded-2xl bg-emerald-400/10 text-emerald-300"><Scale className="size-5" /></span></div>
+      <div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/[0.07] pt-4">{([['7-day', change(currentDisplay?.weight, sevenPast?.weight)], ['30-day', change(currentDisplay?.weight, thirtyPast?.weight)], ['Total', change(currentDisplay?.weight, first?.weight)], ['Goal', goalWeightDisplay == null || currentDisplay == null ? undefined : goalWeightDisplay - currentDisplay.weight]] as const).map(([label, value]) => <div key={label}><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label}</p><p className="mt-1 text-sm font-semibold text-slate-200">{value === undefined ? '—' : `${Number(value).toFixed(1)} ${unit}`}</p></div>)}</div>
+      {goalProgress && <div className="goal-progress-card"><div className="flex items-start justify-between gap-3"><div><p>Weight-loss goal</p><strong>{goalProgress.remaining <= 0 ? 'Goal reached!' : goalProgress.lost >= 0 ? `${number(goalProgress.lost)} ${unit} lost · ${number(goalProgress.remaining)} ${unit} left!` : `${number(Math.abs(goalProgress.lost))} ${unit} above start · ${number(goalProgress.remaining)} ${unit} left`}</strong></div><span>{Math.round(goalProgress.percentComplete)}%</span></div><div aria-label={`${Math.round(goalProgress.percentComplete)} percent of weight goal complete`} aria-valuemax={100} aria-valuemin={0} aria-valuenow={Math.round(goalProgress.percentComplete)} className="goal-progress-track" role="progressbar"><i style={{ width: `${goalProgress.percentComplete}%` }} /></div><div className="flex justify-between"><small>Started {number(goalProgress.startWeight)} {unit}</small><small>Goal {number(goalProgress.goalWeight)} {unit}</small></div></div>}
+    </section>
+    <section className="chart-card">
+      <div className="flex items-start justify-between gap-3"><div><h2 className="section-title">Weigh-in history</h2><p className="mt-1 text-xs text-slate-500">Remove an accidental or incorrect entry.</p></div><Scale className="size-5 text-sky-300" /></div>
+      {displayedWeighIns.length === 0 ? <p className="mt-4 rounded-xl bg-zinc-900/70 px-4 py-5 text-center text-sm text-zinc-500">No weigh-ins logged yet.</p> : <div className="mt-4 overflow-hidden rounded-2xl border border-white/[0.07]">{displayedWeighIns.map((entry) => <div className="flex min-h-16 items-center gap-3 border-b border-white/[0.06] px-3 py-2.5 last:border-0" key={entry.id}><span className="min-w-0 flex-1"><strong className="block text-sm font-semibold text-zinc-200">{new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${entry.date}T12:00:00`))}</strong><small className="mt-0.5 block overflow-hidden text-ellipsis whitespace-nowrap text-xs text-zinc-500">{entry.note || 'Bodyweight entry'}</small></span><span className="shrink-0 text-sm font-semibold text-zinc-200">{number(entry.weight)} {entry.unit}</span><button aria-label={`Delete ${number(entry.weight)} ${entry.unit} weigh-in from ${entry.date}`} className="workout-icon-button workout-icon-button-danger shrink-0" onClick={() => { if (window.confirm(`Delete the ${number(entry.weight)} ${entry.unit} weigh-in from ${entry.date}?`)) void progressRepository.deleteWeightLog(entry.id) }}><Trash2 className="size-4" /></button></div>)}</div>}
+      {weighInsNewestFirst.length > 5 && <button className="button-quiet mt-2 w-full" onClick={() => setShowAllWeighIns((currentValue) => !currentValue)}>{showAllWeighIns ? 'Show recent weigh-ins' : `Show all ${weighInsNewestFirst.length} weigh-ins`}</button>}
+    </section>
+    <section className="chart-card">
+      <div className="flex items-center justify-between gap-3"><h2 className="section-title">Bodyweight trend</h2><div className="flex rounded-lg bg-slate-800 p-0.5">{(['1m', '3m', '6m', 'all'] as Range[]).map((item) => <button className={`range-button ${range === item ? 'range-button-active' : ''}`} key={item} onClick={() => setRange(item)}>{item}</button>)}</div></div>
+      <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-zinc-950/55 p-1"><button aria-pressed={trendMode === 'daily'} className={`goal-mode-button ${trendMode === 'daily' ? 'goal-mode-button-active' : ''}`} onClick={() => setTrendMode('daily')}>Daily weight</button><button aria-pressed={trendMode === 'weekly'} className={`goal-mode-button ${trendMode === 'weekly' ? 'goal-mode-button-active' : ''}`} onClick={() => setTrendMode('weekly')}>Weekly average</button></div>
+      <div className="mt-3 flex flex-wrap gap-3 text-[10px] font-semibold text-zinc-500"><span className="inline-flex items-center gap-1.5"><i className="h-0.5 w-4 bg-sky-300" />{trendMode === 'weekly' ? 'Weekly average' : 'Daily weight'}</span>{goals.trendStartDate && <span className="inline-flex items-center gap-1.5"><i className="h-0.5 w-4 border-t border-dashed border-amber-300" />Goal pace</span>}</div>
+      {chartData.length < 2 ? <div className="chart-empty"><Scale className="size-5" />Log bodyweight or set a calorie goal to reveal your trend.</div> : <div className="mt-4 h-56"><ResponsiveContainer height="100%" width="100%"><LineChart data={chartData} margin={{ top: 5, right: 4, bottom: 0, left: -18 }}><CartesianGrid stroke="#334155" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" minTickGap={30} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} /><YAxis domain={['dataMin - 1', 'dataMax + 1']} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} /><Tooltip contentStyle={{ border: '1px solid #334155', borderRadius: 12, background: '#182238', color: '#e8edf5' }} /><Line connectNulls dataKey="weight" dot={{ r: trendMode === 'daily' ? 2 : 3, fill: '#72baff' }} name={`${trendMode === 'weekly' ? 'Weekly average' : 'Daily weight'} (${unit})`} stroke="#72baff" strokeWidth={2} type="monotone" />{goals.trendStartDate && <Line connectNulls dataKey="goal" dot={false} name="Goal pace" stroke="#fcd34d" strokeDasharray="5 4" strokeWidth={2} type="monotone" />}</LineChart></ResponsiveContainer></div>}
+    </section>
+    <section className="chart-card">
+      <div className="flex items-center justify-between gap-3"><div><h2 className="section-title">Strength progress</h2><p className="mt-1 text-xs text-slate-500">Top working set and estimated 1RM where applicable.</p></div><BarChart3 className="size-5 text-sky-300" /></div>
+      <label className="field-label mt-4">Exercise<select className="field-input" onChange={(event) => setSelectedExerciseId(event.target.value)} value={selectedExerciseId}><option value="">Choose an exercise</option>{exercises?.map((exercise) => <option key={exercise.id} value={exercise.id}>{exercise.name}</option>)}</select></label>
+      {!selectedExerciseId ? <div className="chart-empty">Choose an exercise to see completed-session strength history.</div> : strengthChart.length < 1 ? <div className="chart-empty">Complete a session with this exercise to begin tracking strength.</div> : <><div className="mt-4 grid grid-cols-2 gap-3"><div className="rounded-xl bg-slate-800/65 p-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Latest top set</p><p className="mt-1 text-lg font-semibold text-slate-200">{latestStrength?.topWeight} × {latestStrength?.topReps}</p></div><div className="rounded-xl bg-slate-800/65 p-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Change</p><p className="mt-1 text-lg font-semibold text-slate-200">{firstStrength && latestStrength ? `${number(latestStrength.topWeight - firstStrength.topWeight)} ${preferredUnit}` : '—'}</p></div></div>{latestPrs.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{latestPrs.map((label) => <span className="rounded-full bg-amber-300/10 px-2.5 py-1 text-xs font-bold text-amber-200" key={String(label)}>{label}</span>)}</div>}<div className="mt-4 h-52"><ResponsiveContainer height="100%" width="100%"><LineChart data={strengthChart} margin={{ top: 5, right: 4, bottom: 0, left: -18 }}><CartesianGrid stroke="#334155" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" minTickGap={30} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} /><YAxis stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} /><Tooltip contentStyle={{ border: '1px solid #334155', borderRadius: 12, background: '#182238', color: '#e8edf5' }} /><Line dataKey="top" dot={{ r: 2, fill: '#72baff' }} name="Top weight" stroke="#72baff" strokeWidth={2} type="monotone" /><Line dataKey="oneRm" dot={false} name="Est. 1RM" stroke="#fbbf24" strokeWidth={1.5} type="monotone" /></LineChart></ResponsiveContainer></div></>}
+    </section>
+    {logging && <Sheet defaultUnit={preferredUnit} onClose={() => setLogging(false)} />}
+  </div>
 }

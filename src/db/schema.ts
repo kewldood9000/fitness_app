@@ -28,4 +28,6 @@ export const schemaV2 = {
   credentials: '&key, updatedAt'
 } as const
 
-export type TableName = keyof typeof schemaV2
+export const schemaV3 = { ...schemaV2 } as const
+
+export type TableName = keyof typeof schemaV3

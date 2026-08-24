@@ -17,6 +17,11 @@ export interface StrengthPoint {
   isEstimated1RMPr: boolean
 }
 
+export interface WeightTrendPoint {
+  date: string
+  weight: number
+}
+
 function average(values: number[]): number | undefined {
   if (!values.length) return undefined
   return values.reduce((sum, value) => sum + value, 0) / values.length
@@ -24,6 +29,17 @@ function average(values: number[]): number | undefined {
 
 export function movingAverage(items: WeightLog[], days = 7): Array<WeightLog & { average: number | undefined }> {
   return items.map((item, index) => ({ ...item, average: average(items.slice(Math.max(0, index - days + 1), index + 1).map((entry) => entry.weight)) }))
+}
+
+export function weeklyAverage(items: WeightLog[]): WeightTrendPoint[] {
+  const weeks = new Map<string, number[]>()
+  items.forEach((item) => {
+    const date = new Date(`${item.date}T12:00:00`)
+    date.setDate(date.getDate() - date.getDay())
+    const week = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    weeks.set(week, [...(weeks.get(week) ?? []), item.weight])
+  })
+  return [...weeks.entries()].sort(([first], [second]) => first.localeCompare(second)).map(([date, values]) => ({ date, weight: average(values) ?? 0 }))
 }
 
 export function markPersonalRecords(points: StrengthPoint[]): StrengthPoint[] {
