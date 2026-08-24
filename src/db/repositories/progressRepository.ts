@@ -22,9 +22,21 @@ export interface WeightTrendPoint {
   weight: number
 }
 
+export interface WeightHistoryRow extends WeightLog {
+  dailyLoss: number
+  dailyNet?: number
+  weekAverage?: number
+  averageNet?: number
+}
+
 function average(values: number[]): number | undefined {
   if (!values.length) return undefined
   return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function round(value: number, digits = 4): number {
+  const factor = 10 ** digits
+  return Math.round((value + Number.EPSILON) * factor) / factor
 }
 
 export function movingAverage(items: WeightLog[], days = 7): Array<WeightLog & { average: number | undefined }> {
@@ -40,6 +52,55 @@ export function weeklyAverage(items: WeightLog[]): WeightTrendPoint[] {
     weeks.set(week, [...(weeks.get(week) ?? []), item.weight])
   })
   return [...weeks.entries()].sort(([first], [second]) => first.localeCompare(second)).map(([date, values]) => ({ date, weight: average(values) ?? 0 }))
+}
+
+function mondayFor(dateKey: string): string {
+  const date = new Date(`${dateKey}T12:00:00`)
+  date.setDate(date.getDate() - ((date.getDay() + 6) % 7))
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+export function weightHistory(items: WeightLog[]): WeightHistoryRow[] {
+  const ordered = [...items].sort((first, second) => first.date.localeCompare(second.date))
+  const weeks = new Map<string, WeightLog[]>()
+  ordered.forEach((item) => {
+    const week = mondayFor(item.date)
+    weeks.set(week, [...(weeks.get(week) ?? []), item])
+  })
+
+  const summaries = new Map<string, { dailyNet: number; weekAverage: number; averageNet: number }>()
+  let previousAverage: number | undefined
+  weeks.forEach((entries, week) => {
+    const weekAverage = average(entries.map((entry) => entry.weight)) ?? 0
+    summaries.set(week, {
+      dailyNet: round(entries.at(-1)!.weight - entries[0].weight),
+      weekAverage: round(weekAverage),
+      averageNet: previousAverage == null ? 0 : round(weekAverage - previousAverage)
+    })
+    previousAverage = weekAverage
+  })
+
+  return ordered.map((item, index) => {
+    const week = mondayFor(item.date)
+    const entries = weeks.get(week) ?? []
+    const summary = entries[0]?.id === item.id ? summaries.get(week) : undefined
+    return {
+      ...item,
+      dailyLoss: index === 0 ? 0 : round(item.weight - ordered[index - 1].weight),
+      ...summary
+    }
+  })
+}
+
+export function latestPreviousDayChange(items: WeightLog[]): number | undefined {
+  const ordered = [...items].sort((first, second) => first.date.localeCompare(second.date))
+  const latest = ordered.at(-1)
+  if (!latest) return undefined
+  const previousDate = new Date(`${latest.date}T12:00:00`)
+  previousDate.setDate(previousDate.getDate() - 1)
+  const previousDateKey = `${previousDate.getFullYear()}-${String(previousDate.getMonth() + 1).padStart(2, '0')}-${String(previousDate.getDate()).padStart(2, '0')}`
+  const previous = ordered.find((item) => item.date === previousDateKey)
+  return previous ? round(latest.weight - previous.weight) : undefined
 }
 
 export function markPersonalRecords(points: StrengthPoint[]): StrengthPoint[] {
