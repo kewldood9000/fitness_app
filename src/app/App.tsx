@@ -9,6 +9,7 @@ import { SettingsPage } from '@/features/settings/SettingsPage'
 import {
   ActiveWorkoutPage,
   ExerciseLibraryPage,
+  TemplateExerciseEditorPage,
   TemplateEditorPage,
   TemplateListPage,
   WorkoutHistoryPage,
@@ -39,6 +40,7 @@ export function App() {
           <Route path="workout/library" element={<ExerciseLibraryPage />} />
           <Route path="workout/templates" element={<TemplateListPage />} />
           <Route path="workout/templates/:templateId" element={<TemplateEditorPage />} />
+          <Route path="workout/templates/:templateId/exercises/:templateExerciseId" element={<TemplateExerciseEditorPage />} />
           <Route path="workout/schedule" element={<WorkoutSchedulePage />} />
           <Route path="workout/active/:sessionId" element={<ActiveWorkoutPage />} />
           <Route path="workout/history" element={<WorkoutHistoryPage />} />

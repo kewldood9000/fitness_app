@@ -1,6 +1,8 @@
 import { db } from '@/db/database'
 import { nutritionRepository, type DayNutrition } from './nutritionRepository'
+import { settingsRepository } from './settingsRepository'
 import { workoutRepository } from './workoutRepository'
+import { toDateKey } from '@/utils/dates'
 
 export interface DashboardDay {
   nutrition: DayNutrition
@@ -10,16 +12,19 @@ export interface DashboardDay {
   scheduledTemplateName?: string
   activeSessionId?: string
   activeSessionName?: string
+  workoutSource?: 'scheduled' | 'quick'
 }
 
 export const dashboardRepository = {
   async getDay(date: string, weekday: number): Promise<DashboardDay> {
-    const [nutrition, weight, completed, scheduled, templates, active] = await Promise.all([
+    const [nutrition, weight, completed, scheduled, templates, active, quickSetting] = await Promise.all([
       nutritionRepository.getDayNutrition(date), db.weightLogs.where('date').equals(date).first(), db.workoutSessions.where('date').equals(date).toArray(),
-      db.workoutSchedules.where('weekday').equals(weekday).first(), workoutRepository.getTemplates(), workoutRepository.getActiveSession()
+      db.workoutSchedules.where('weekday').equals(weekday).first(), workoutRepository.getTemplates(), workoutRepository.getActiveSession(), settingsRepository.get('quick-workout-template')
     ])
-    const template = templates.find((item) => item.id === scheduled?.templateId)
-    return { nutrition, weightLogged: Boolean(weight), completedWorkout: completed.some((item) => item.status === 'completed'), scheduledTemplateId: template?.id, scheduledTemplateName: template?.name, activeSessionId: active?.id, activeSessionName: active?.name }
+    const scheduledTemplate = templates.find((item) => item.id === scheduled?.templateId)
+    const quickTemplate = date === toDateKey(new Date()) ? templates.find((item) => item.id === quickSetting?.value) : undefined
+    const template = scheduledTemplate ?? quickTemplate
+    return { nutrition, weightLogged: Boolean(weight), completedWorkout: completed.some((item) => item.status === 'completed'), scheduledTemplateId: template?.id, scheduledTemplateName: template?.name, workoutSource: scheduledTemplate ? 'scheduled' : quickTemplate ? 'quick' : undefined, activeSessionId: active?.id, activeSessionName: active?.name }
   },
   async getWeekIndicators(start: string, end: string): Promise<{ nutrition: Set<string>; weight: Set<string>; workout: Set<string> }> {
     const [foods, weights, sessions] = await Promise.all([

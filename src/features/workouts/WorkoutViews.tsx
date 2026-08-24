@@ -2,8 +2,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   ArrowLeft,
   ArrowUpDown,
+  CalendarDays,
   Check,
-  ChevronDown,
   ChevronRight,
   CirclePlus,
   ClipboardList,
@@ -15,6 +15,7 @@ import {
   Play,
   Plus,
   RotateCcw,
+  Star,
   Trash2,
   X
 } from 'lucide-react'
@@ -22,10 +23,11 @@ import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useState } f
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { workoutRepository, type PreviousPerformance, type SessionExerciseDetails } from '@/db/repositories/workoutRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
-import type { Exercise, WorkoutSet, WorkoutTemplateExercise } from '@/types/models'
+import type { Exercise, PlannedWorkoutSet, WorkoutSet, WorkoutTemplateExercise } from '@/types/models'
 import { formatLongDate } from '@/utils/dates'
 
 const weekdayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const weekdayShortNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const muscles = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Other']
 const equipmentOptions = ['Dumbbell', 'Barbell', 'Cable', 'Machine', 'Bodyweight', 'Bands', 'Other']
 const categoryOptions = ['Strength', 'Cardio', 'Mobility', 'Other']
@@ -173,9 +175,12 @@ export function WorkoutHubPage() {
   const activeSession = useLiveQuery(() => workoutRepository.getActiveSession(), [])
   const templates = useLiveQuery(() => workoutRepository.getTemplates(), [])
   const schedule = useLiveQuery(() => workoutRepository.getSchedule(), [])
+  const quickSetting = useLiveQuery(() => settingsRepository.get('quick-workout-template'), [])
   const today = new Date()
   const scheduled = (schedule ?? []).find((item) => item.weekday === today.getDay())
   const scheduledTemplate = (templates ?? []).find((template) => template.id === scheduled?.templateId)
+  const quickTemplate = (templates ?? []).find((template) => template.id === quickSetting?.value)
+  const todayTemplate = scheduledTemplate ?? quickTemplate
 
   async function start(templateId?: string) {
     const sessionId = await workoutRepository.startWorkout(templateId)
@@ -196,8 +201,8 @@ export function WorkoutHubPage() {
       ) : (
         <section className="dashboard-card overflow-hidden">
           <div className="card-accent card-accent-violet" />
-          <div className="flex items-start justify-between gap-4"><div><p className="eyebrow">Today · {weekdayNames[today.getDay()]}</p><h2 className="mt-1 text-xl font-semibold tracking-[-0.03em] text-slate-50">{scheduledTemplate?.name ?? 'Rest day'}</h2><p className="mt-1 text-sm text-slate-400">{scheduledTemplate ? 'Ready when you are.' : 'Schedule a template or start an unscheduled session.'}</p></div><div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-violet-400/10 text-violet-300"><Dumbbell className="size-5" /></div></div>
-          <div className="mt-5 grid grid-cols-2 gap-3"><button className="button-primary" onClick={() => void start(scheduledTemplate?.id)}><Play className="size-4" />{scheduledTemplate ? 'Start workout' : 'Quick workout'}</button><Link className="button-secondary" to="/workout/schedule"><ClipboardList className="size-4" />View schedule</Link></div>
+          <div className="flex items-start justify-between gap-4"><div><p className="eyebrow">Today · {weekdayNames[today.getDay()]}</p><h2 className="mt-1 text-xl font-semibold tracking-[-0.03em] text-slate-50">{todayTemplate?.name ?? 'Rest day'}</h2><p className="mt-1 text-sm text-slate-400">{scheduledTemplate ? 'Scheduled for today.' : quickTemplate ? 'Your Quick Workout default for unscheduled days.' : 'Assign training days or choose a Quick Workout default.'}</p></div><div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-sky-400/10 text-sky-300"><Dumbbell className="size-5" /></div></div>
+          <div className="mt-5 grid grid-cols-2 gap-3"><button className="button-primary" disabled={!todayTemplate} onClick={() => void start(todayTemplate?.id)}><Play className="size-4" />{scheduledTemplate ? 'Start workout' : 'Quick workout'}</button><Link className="button-secondary" to="/workout/templates"><ClipboardList className="size-4" />Set workouts</Link></div>
         </section>
       )}
 
@@ -250,24 +255,23 @@ export function TemplateListPage() {
   }
 
   return <div className="space-y-5 pb-3 pt-2"><BackLink to="/workout">Workout</BackLink><PageHeader action={<button aria-label="Create template" className="round-add-button" onClick={() => setCreating(true)}><Plus className="size-5" /></button>} eyebrow="Programming" title="Workout templates" detail="Changes here never modify completed workout history." />
-    {(templates?.length ?? 0) === 0 ? <div className="empty-card"><ListPlus className="size-6 text-violet-300" /><h2>Plan your first session</h2><p>Build ordered exercise templates, then assign them to your week.</p><button className="button-primary mt-5" onClick={() => setCreating(true)}><Plus className="size-4" />Create template</button></div> : <div className="space-y-2">{templates?.map((template) => <Link className="template-row" key={template.id} to={`/workout/templates/${template.id}`}><span className="grid size-10 place-items-center rounded-xl bg-violet-400/10 text-violet-300"><Dumbbell className="size-[18px]" /></span><span className="min-w-0 flex-1"><strong>{template.name}</strong><small>{template.notes || 'Tap to add exercises and targets'}</small></span><ChevronRight className="size-4 text-slate-600" /></Link>)}</div>}
+    {(templates?.length ?? 0) === 0 ? <div className="empty-card"><ListPlus className="size-6 text-sky-300" /><h2>Plan your first session</h2><p>Build ordered exercise templates, then assign them to your week.</p><button className="button-primary mt-5" onClick={() => setCreating(true)}><Plus className="size-4" />Create template</button></div> : <div className="space-y-2">{templates?.map((template) => <Link className="template-row" key={template.id} to={`/workout/templates/${template.id}`}><span className="grid size-10 place-items-center rounded-xl bg-sky-400/10 text-sky-300"><Dumbbell className="size-[18px]" /></span><span className="min-w-0 flex-1"><strong>{template.name}</strong><small>{template.notes || 'Tap to add exercises and targets'}</small></span><ChevronRight className="size-4 text-slate-600" /></Link>)}</div>}
     {creating && <Modal onClose={() => setCreating(false)} title="New workout template"><label className="field-label">Template name<input autoFocus className="field-input mt-1" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void create() }} placeholder="e.g. Pull A" value={name} /></label><div className="mt-5 flex gap-3"><button className="button-secondary flex-1" onClick={() => setCreating(false)}>Cancel</button><button className="button-primary flex-1" disabled={!name.trim()} onClick={() => void create()}>Create</button></div></Modal>}
   </div>
 }
 
-function TemplateExerciseCard({ item, exercise, onAddExercise }: { item: WorkoutTemplateExercise; exercise?: Exercise; onAddExercise: () => void }) {
-  const [detailsOpen, setDetailsOpen] = useState(false)
-  const setNumber = (key: 'targetSets' | 'minReps' | 'maxReps' | 'targetRir' | 'restSeconds', value: string) => workoutRepository.updateTemplateExercise(item.id, { [key]: value === '' ? undefined : Number(value) })
-  const name = exercise?.name ?? 'Unavailable exercise'
-  return <article className="template-exercise-card"><div className="flex items-start gap-3"><span className="set-number-badge">{item.order + 1}</span><button className="min-w-0 flex-1 text-left" onClick={onAddExercise}><h3>{name}</h3><p>{exercise ? `${exercise.primaryMuscle} · ${exercise.equipment}` : 'Choose a replacement in your library'}</p></button><div className="flex gap-1"><IconButton label="Move exercise up" onClick={() => void workoutRepository.moveTemplateExercise(item.id, -1)}><ArrowUpDown className="size-4 -rotate-90" /></IconButton><IconButton label="Move exercise down" onClick={() => void workoutRepository.moveTemplateExercise(item.id, 1)}><ArrowUpDown className="size-4 rotate-90" /></IconButton><IconButton label="Remove exercise" onClick={() => { if (window.confirm(`Remove ${name} from this template?`)) void workoutRepository.removeTemplateExercise(item.id) }} tone="danger"><Trash2 className="size-4" /></IconButton></div></div>
-    <div className="mt-4 grid grid-cols-4 gap-2"><NumericField label="Sets" defaultValue={item.targetSets} onBlur={(value) => void setNumber('targetSets', value)} /><NumericField label="Min reps" defaultValue={item.minReps} onBlur={(value) => void setNumber('minReps', value)} /><NumericField label="Max reps" defaultValue={item.maxReps} onBlur={(value) => void setNumber('maxReps', value)} /><NumericField label="RIR" defaultValue={item.targetRir} onBlur={(value) => void setNumber('targetRir', value)} /></div>
-    <button className="mt-3 inline-flex min-h-10 items-center gap-1 text-xs font-semibold text-slate-400 hover:text-slate-200" onClick={() => setDetailsOpen((open) => !open)} type="button"><ChevronDown className={`size-4 transition ${detailsOpen ? 'rotate-180' : ''}`} />More options</button>
-    {detailsOpen && <div className="mt-1 space-y-3 rounded-xl bg-slate-800/55 p-3"><NumericField label="Rest seconds" defaultValue={item.restSeconds} onBlur={(value) => void setNumber('restSeconds', value)} /><label className="field-label">Exercise notes<textarea className="field-input mt-1 min-h-18" defaultValue={item.notes} onBlur={(event) => void workoutRepository.updateTemplateExercise(item.id, { notes: event.target.value || undefined })} placeholder="Optional coaching cue" /></label></div>}
-  </article>
+function plannedSetsFor(item: WorkoutTemplateExercise): PlannedWorkoutSet[] {
+  return item.plannedSets?.length
+    ? item.plannedSets
+    : Array.from({ length: item.targetSets }, () => ({ type: 'working' as const }))
 }
 
-function NumericField({ label, defaultValue, onBlur, inputMode = 'numeric' }: { label: string; defaultValue?: number; onBlur: (value: string) => void; inputMode?: 'numeric' | 'decimal' }) {
-  return <label className="field-label text-[10px] uppercase tracking-[0.08em] text-slate-500">{label}<input className="compact-field mt-1" defaultValue={defaultValue ?? ''} inputMode={inputMode} onBlur={(event) => onBlur(event.target.value)} type="number" /></label>
+function TemplateExerciseRow({ item, exercise, templateId }: { item: WorkoutTemplateExercise; exercise?: Exercise; templateId: string }) {
+  const sets = plannedSetsFor(item)
+  const workingSets = sets.filter((set) => set.type !== 'warmup')
+  const repValues = [...new Set(workingSets.map((set) => set.reps).filter((value): value is number => value != null))]
+  const repSummary = repValues.length === 1 ? `${repValues[0]} reps` : repValues.length > 1 ? `${Math.min(...repValues)}–${Math.max(...repValues)} reps` : 'Set reps and weight'
+  return <Link className="template-exercise-row" to={`/workout/templates/${templateId}/exercises/${item.id}`}><span className="set-number-badge">{item.order + 1}</span><span className="min-w-0 flex-1"><strong>{exercise?.name ?? 'Unavailable exercise'}</strong><small>{sets.length} {sets.length === 1 ? 'set' : 'sets'} · {repSummary}</small><small>{exercise ? `${exercise.primaryMuscle} · ${exercise.equipment}` : 'Exercise unavailable'}</small></span><ChevronRight className="size-5 shrink-0 text-zinc-600" /></Link>
 }
 
 export function TemplateEditorPage() {
@@ -275,16 +279,50 @@ export function TemplateEditorPage() {
   const navigate = useNavigate()
   const details = useLiveQuery(() => workoutRepository.getTemplateDetails(templateId), [templateId])
   const exercises = useLiveQuery(() => workoutRepository.getExercises(), [])
+  const schedule = useLiveQuery(() => workoutRepository.getSchedule(), [])
+  const quickSetting = useLiveQuery(() => settingsRepository.get('quick-workout-template'), [])
   const [pickerOpen, setPickerOpen] = useState(false)
   if (details === undefined) return <div className="pt-6 text-center text-sm text-slate-500">Loading template…</div>
   if (!details) return <div className="pt-6"><BackLink to="/workout/templates">Templates</BackLink><div className="empty-card"><h2>Template not found</h2><p>It may have been deleted.</p></div></div>
   const exerciseMap = new Map((exercises ?? []).map((exercise) => [exercise.id, exercise]))
+  const selectedDays = new Set((schedule ?? []).filter((item) => item.templateId === templateId).map((item) => item.weekday))
+  const isQuickWorkout = quickSetting?.value === templateId
+  const toggleDay = (weekday: number) => workoutRepository.setScheduledTemplate(weekday, selectedDays.has(weekday) ? undefined : templateId)
   return <div className="space-y-5 pb-3 pt-2"><BackLink to="/workout/templates">Templates</BackLink><section><p className="eyebrow">Template editor</p><input aria-label="Template name" className="template-name-input" defaultValue={details.template.name} onBlur={(event) => void workoutRepository.updateTemplate(templateId, { name: event.target.value || details.template.name, notes: details.template.notes })} /><textarea aria-label="Template notes" className="mt-2 min-h-12 w-full resize-none bg-transparent text-sm text-slate-400 outline-none placeholder:text-slate-600" defaultValue={details.template.notes} onBlur={(event) => void workoutRepository.updateTemplate(templateId, { name: details.template.name, notes: event.target.value || undefined })} placeholder="Optional session notes" /></section>
+    <section className="workout-program-card"><div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-sky-400/10 text-sky-300"><CalendarDays className="size-5" /></span><div><h2 className="section-title">Training days</h2><p className="mt-1 text-xs leading-5 text-zinc-500">Choose every day this workout should appear in Today.</p></div></div><div className="mt-4 grid grid-cols-7 gap-1.5">{weekdayShortNames.map((day, index) => <button aria-label={`Schedule for ${day}`} aria-pressed={selectedDays.has(index)} className={`weekday-chip ${selectedDays.has(index) ? 'weekday-chip-active' : ''}`} key={day} onClick={() => void toggleDay(index)}>{day}</button>)}</div><button aria-pressed={isQuickWorkout} className={`quick-default-button ${isQuickWorkout ? 'quick-default-button-active' : ''}`} onClick={() => void settingsRepository.set('quick-workout-template', isQuickWorkout ? undefined : templateId)}><Star className="size-4" />{isQuickWorkout ? 'Quick Workout default' : 'Use as Quick Workout default'}</button></section>
     <div className="flex items-center justify-between"><h2 className="section-title">Exercises</h2><button className="button-quiet" onClick={() => setPickerOpen(true)}><Plus className="size-4" />Add exercise</button></div>
-    {details.exercises.length === 0 ? <div className="empty-card compact"><p>Add exercises from your custom library to set your working targets.</p><button className="button-primary mt-4" onClick={() => setPickerOpen(true)}><Plus className="size-4" />Add exercise</button></div> : <div className="space-y-3">{details.exercises.map((item) => <TemplateExerciseCard exercise={exerciseMap.get(item.exerciseId)} item={item} key={item.id} onAddExercise={() => setPickerOpen(true)} />)}</div>}
+    {details.exercises.length === 0 ? <div className="empty-card compact"><p>Add exercises from your custom library, then tap each one to set reps and weight.</p><button className="button-primary mt-4" onClick={() => setPickerOpen(true)}><Plus className="size-4" />Add exercise</button></div> : <div className="overflow-hidden rounded-2xl border border-white/[0.07]">{details.exercises.map((item) => <TemplateExerciseRow exercise={exerciseMap.get(item.exerciseId)} item={item} key={item.id} templateId={templateId} />)}</div>}
     <button className="button-danger-outline w-full" onClick={() => { if (window.confirm(`Delete ${details.template.name}? Your completed workout history stays intact.`)) { void workoutRepository.deleteTemplate(templateId); navigate('/workout/templates') } }}><Trash2 className="size-4" />Delete template</button>
     {pickerOpen && <ExercisePicker onClose={() => setPickerOpen(false)} onPick={(exerciseId) => workoutRepository.addExerciseToTemplate(templateId, exerciseId)} />}
   </div>
+}
+
+function TemplateSetEditor({ item, exercise, templateName }: { item: WorkoutTemplateExercise; exercise: Exercise; templateName: string }) {
+  const navigate = useNavigate()
+  const [sets, setSets] = useState<PlannedWorkoutSet[]>(() => plannedSetsFor(item))
+  const saveSets = async (next: PlannedWorkoutSet[]) => {
+    setSets(next)
+    await workoutRepository.updateTemplateExercise(item.id, { plannedSets: next, targetSets: next.length })
+  }
+  const changeSet = (index: number, key: 'reps' | 'weight' | 'rir', value: string) => setSets((current) => current.map((set, setIndex) => setIndex === index ? { ...set, [key]: value === '' ? undefined : Number(value) } : set))
+  const persist = () => void workoutRepository.updateTemplateExercise(item.id, { plannedSets: sets, targetSets: sets.length })
+  const removeExercise = async () => {
+    if (!window.confirm(`Remove ${exercise.name} from ${templateName}?`)) return
+    await workoutRepository.removeTemplateExercise(item.id)
+    navigate(`/workout/templates/${item.templateId}`)
+  }
+  return <div className="space-y-5"><section><p className="eyebrow">{templateName}</p><h1 className="page-title">{exercise.name}</h1><p className="mt-1.5 text-sm text-zinc-500">{exercise.primaryMuscle} · {exercise.equipment}</p></section><section className="planned-sets-card"><div className="planned-set-header"><span>Set</span><span>Reps</span><span>Weight</span><span>RIR</span><span /></div>{sets.map((set, index) => <div className="planned-set-row" key={`${set.type}-${index}`}><span className={`planned-set-number ${set.type === 'warmup' ? 'planned-set-warmup' : ''}`}>{set.type === 'warmup' ? 'W' : sets.slice(0, index + 1).filter((entry) => entry.type !== 'warmup').length}</span><input aria-label={`Set ${index + 1} reps`} inputMode="numeric" onBlur={persist} onChange={(event) => changeSet(index, 'reps', event.target.value)} placeholder="—" type="number" value={set.reps ?? ''} /><input aria-label={`Set ${index + 1} weight`} inputMode="decimal" onBlur={persist} onChange={(event) => changeSet(index, 'weight', event.target.value)} placeholder="—" step="0.5" type="number" value={set.weight ?? ''} /><input aria-label={`Set ${index + 1} RIR`} inputMode="numeric" max="5" min="0" onBlur={persist} onChange={(event) => changeSet(index, 'rir', event.target.value)} placeholder="—" type="number" value={set.rir ?? ''} /><button aria-label={`Delete set ${index + 1}`} className="set-delete-button" onClick={() => void saveSets(sets.filter((_, setIndex) => setIndex !== index))}><X className="size-4" /></button></div>)}<div className="grid grid-cols-2 gap-2 border-t border-white/[0.07] p-3"><button className="button-secondary" onClick={() => void saveSets([...sets, { type: 'warmup' }])}><Plus className="size-4" />Add warmup</button><button className="button-primary" onClick={() => void saveSets([...sets, { type: 'working' }])}><Plus className="size-4" />Add set</button></div></section><section className="workout-program-card"><label className="field-label">Rest time<select className="field-input" onChange={(event) => void workoutRepository.updateTemplateExercise(item.id, { restSeconds: Number(event.target.value) })} value={item.restSeconds ?? 120}>{[60, 90, 120, 150, 180].map((seconds) => <option key={seconds} value={seconds}>{seconds / 60} min</option>)}</select></label><label className="field-label mt-4">Exercise note<textarea className="field-input min-h-24" defaultValue={item.notes} onBlur={(event) => void workoutRepository.updateTemplateExercise(item.id, { notes: event.target.value.trim() || undefined })} placeholder="Optional form cues or setup notes" /></label></section><div className="grid grid-cols-2 gap-3"><button className="button-secondary" onClick={() => void workoutRepository.moveTemplateExercise(item.id, -1)}><ArrowUpDown className="size-4 -rotate-90" />Move up</button><button className="button-secondary" onClick={() => void workoutRepository.moveTemplateExercise(item.id, 1)}><ArrowUpDown className="size-4 rotate-90" />Move down</button></div><button className="button-danger-outline w-full" onClick={() => void removeExercise()}><Trash2 className="size-4" />Remove exercise</button></div>
+}
+
+export function TemplateExerciseEditorPage() {
+  const { templateId = '', templateExerciseId = '' } = useParams()
+  const details = useLiveQuery(() => workoutRepository.getTemplateDetails(templateId), [templateId])
+  const exercises = useLiveQuery(() => workoutRepository.getExercises(), [])
+  if (details === undefined || exercises === undefined) return <div className="pt-6 text-center text-sm text-zinc-500">Loading exercise…</div>
+  const item = details?.exercises.find((entry) => entry.id === templateExerciseId)
+  const exercise = item && exercises.find((entry) => entry.id === item.exerciseId)
+  if (!details || !item || !exercise) return <div className="pt-6"><BackLink to={`/workout/templates/${templateId}`}>Workout</BackLink><div className="empty-card"><h2>Exercise not found</h2><p>It may have been removed from this workout.</p></div></div>
+  return <div className="space-y-5 pb-3 pt-2"><BackLink to={`/workout/templates/${templateId}`}>{details.template.name}</BackLink><TemplateSetEditor exercise={exercise} item={item} key={item.id} templateName={details.template.name} /></div>
 }
 
 export function WorkoutSchedulePage() {
@@ -365,7 +403,7 @@ export function ActiveWorkoutPage() {
 export function WorkoutHistoryPage() {
   const history = useLiveQuery(() => workoutRepository.getWorkoutHistory(), [])
   return <div className="space-y-5 pb-3 pt-2"><BackLink to="/workout">Workout</BackLink><PageHeader eyebrow="Training record" title="Workout history" detail="Completed sessions remain separate from their source templates." />
-    {(history?.length ?? 0) === 0 ? <div className="empty-card"><Clock3 className="size-6 text-violet-300" /><h2>No completed workouts yet</h2><p>Finish your first active workout to build your training history.</p></div> : <div className="space-y-2">{history?.map(({ session, workingSetCount, durationMinutes }) => <Link className="history-row" key={session.id} to={`/workout/history/${session.id}`}><span><strong>{new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(`${session.date}T12:00:00`))}</strong><small>{durationMinutes} min · {workingSetCount} working {workingSetCount === 1 ? 'set' : 'sets'}</small></span><span className="min-w-0 flex-1 text-right text-sm font-semibold text-slate-200">{session.name}</span><ChevronRight className="size-4 text-slate-600" /></Link>)}</div>}
+    {(history?.length ?? 0) === 0 ? <div className="empty-card"><Clock3 className="size-6 text-sky-300" /><h2>No completed workouts yet</h2><p>Finish your first active workout to build your training history.</p></div> : <div className="space-y-2">{history?.map(({ session, workingSetCount, durationMinutes }) => <Link className="history-row" key={session.id} to={`/workout/history/${session.id}`}><span><strong>{new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(`${session.date}T12:00:00`))}</strong><small>{durationMinutes} min · {workingSetCount} working {workingSetCount === 1 ? 'set' : 'sets'}</small></span><span className="min-w-0 flex-1 text-right text-sm font-semibold text-slate-200">{session.name}</span><ChevronRight className="size-4 text-slate-600" /></Link>)}</div>}
   </div>
 }
 

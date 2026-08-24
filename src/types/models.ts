@@ -100,6 +100,13 @@ export interface WorkoutTemplate extends Timestamped {
   notes?: string
 }
 
+export interface PlannedWorkoutSet {
+  reps?: number
+  weight?: number
+  rir?: number
+  type: WorkoutSet['type']
+}
+
 export interface WorkoutTemplateExercise extends Timestamped {
   templateId: string
   exerciseId: string
@@ -110,6 +117,7 @@ export interface WorkoutTemplateExercise extends Timestamped {
   targetRir?: number
   restSeconds?: number
   notes?: string
+  plannedSets?: PlannedWorkoutSet[]
 }
 
 export interface WorkoutSchedule extends Timestamped {

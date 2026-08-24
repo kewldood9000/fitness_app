@@ -7,7 +7,8 @@ import type {
   WorkoutSessionExercise,
   WorkoutSet,
   WorkoutTemplate,
-  WorkoutTemplateExercise
+  WorkoutTemplateExercise,
+  PlannedWorkoutSet
 } from '@/types/models'
 import { toDateKey } from '@/utils/dates'
 
@@ -129,6 +130,8 @@ export const workoutRepository = {
       await db.workoutSchedules.where('templateId').equals(templateId).delete()
       await db.workoutTemplates.delete(templateId)
     })
+    const quickTemplate = await settingsRepository.get('quick-workout-template')
+    if (quickTemplate?.value === templateId) await settingsRepository.set('quick-workout-template', undefined)
   },
 
   async addExerciseToTemplate(templateId: string, exerciseId: string): Promise<void> {
@@ -144,13 +147,14 @@ export const workoutRepository = {
       maxReps: 12,
       targetRir: 2,
       restSeconds: defaultRestSeconds,
+      plannedSets: Array.from({ length: 3 }, () => ({ type: 'working' as const })),
       createdAt: timestamp,
       updatedAt: timestamp
     })
     await db.workoutTemplates.update(templateId, { updatedAt: timestamp })
   },
 
-  async updateTemplateExercise(id: string, input: Partial<Pick<WorkoutTemplateExercise, 'targetSets' | 'minReps' | 'maxReps' | 'targetRir' | 'restSeconds' | 'notes'>>): Promise<void> {
+  async updateTemplateExercise(id: string, input: Partial<Pick<WorkoutTemplateExercise, 'targetSets' | 'minReps' | 'maxReps' | 'targetRir' | 'restSeconds' | 'notes' | 'plannedSets'>>): Promise<void> {
     const item = await db.workoutTemplateExercises.get(id)
     if (!item) return
     await db.workoutTemplateExercises.update(id, { ...input, updatedAt: now() })
@@ -242,14 +246,12 @@ export const workoutRepository = {
           updatedAt: timestamp
         }
         await db.workoutSessionExercises.add(sessionExercise)
-        const sets: WorkoutSet[] = Array.from({ length: item.targetSets }, (_, order) => ({
-          id: newId(),
-          sessionExerciseId: sessionExercise.id,
-          order,
-          type: 'working',
-          completed: false,
-          createdAt: timestamp,
-          updatedAt: timestamp
+        const plan: PlannedWorkoutSet[] = item.plannedSets?.length
+          ? item.plannedSets
+          : Array.from({ length: item.targetSets }, () => ({ type: 'working' as const }))
+        const sets: WorkoutSet[] = plan.map((planned, order) => ({
+          id: newId(), sessionExerciseId: sessionExercise.id, order, type: planned.type, weight: planned.weight,
+          reps: planned.reps, rir: planned.rir, completed: false, createdAt: timestamp, updatedAt: timestamp
         }))
         await db.workoutSets.bulkAdd(sets)
       }
