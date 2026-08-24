@@ -18,6 +18,7 @@ function useKeyboardViewport() {
   useEffect(() => {
     const root = document.documentElement
     const visualViewport = window.visualViewport
+    const isAppleTouchDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
     let largestViewportHeight = Math.max(window.innerHeight, visualViewport?.height ?? 0)
     let revealTimer: number | undefined
 
@@ -49,6 +50,7 @@ function useKeyboardViewport() {
       const keyboardOpen = largestViewportHeight - viewportHeight > keyboardThreshold
       root.style.setProperty('--visual-viewport-height', `${Math.round(viewportHeight)}px`)
       root.style.setProperty('--visual-viewport-top', `${Math.round(viewportTop)}px`)
+      root.style.setProperty('--keyboard-accessory-inset', keyboardOpen && isAppleTouchDevice ? '3.25rem' : '0px')
       root.classList.toggle('keyboard-open', keyboardOpen)
       if (keyboardOpen) scheduleReveal()
     }
@@ -75,6 +77,7 @@ function useKeyboardViewport() {
       root.classList.remove('keyboard-open')
       root.style.removeProperty('--visual-viewport-height')
       root.style.removeProperty('--visual-viewport-top')
+      root.style.removeProperty('--keyboard-accessory-inset')
     }
   }, [])
 }

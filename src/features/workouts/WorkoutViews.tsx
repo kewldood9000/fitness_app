@@ -117,7 +117,7 @@ function ExercisePicker({ onPick, onClose }: { onPick: (exerciseId: string) => P
 
   return (
     <Modal onClose={onClose} title="Add exercise">
-      <input autoFocus className="field-input mb-3" onChange={(event) => setQuery(event.target.value)} placeholder="Search exercises, muscles, or equipment" type="search" value={query} />
+      <input className="field-input mb-3" onChange={(event) => setQuery(event.target.value)} placeholder="Search exercises, muscles, or equipment" type="search" value={query} />
       <div className="exercise-filter-scroll -mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1">
         {availableMuscles.map((muscle) => <button aria-pressed={selectedMuscle === muscle} className={`exercise-filter-chip ${selectedMuscle === muscle ? 'exercise-filter-chip-active' : ''}`} key={muscle} onClick={() => setSelectedMuscle(muscle)} type="button">{muscle}</button>)}
       </div>
@@ -169,7 +169,7 @@ function ExerciseForm({ exercise, onSaved, onCancel }: { exercise?: Exercise; on
 
   return (
     <form className="space-y-4" onSubmit={(event) => void submit(event)}>
-      <label className="field-label">Exercise name<input autoFocus className="field-input" defaultValue={exercise?.name} name="name" placeholder="e.g. Incline dumbbell press" /></label>
+      <label className="field-label">Exercise name<input className="field-input" defaultValue={exercise?.name} name="name" placeholder="e.g. Incline dumbbell press" /></label>
       <div className="grid grid-cols-2 gap-3">
         <label className="field-label">Primary muscle<select className="field-input" defaultValue={exercise?.primaryMuscle ?? 'Other'} name="primaryMuscle">{muscles.map((muscle) => <option key={muscle}>{muscle}</option>)}</select></label>
         <label className="field-label">Equipment<select className="field-input" defaultValue={exercise?.equipment ?? 'Other'} name="equipment">{equipmentOptions.map((item) => <option key={item}>{item}</option>)}</select></label>
@@ -269,7 +269,7 @@ export function TemplateListPage() {
 
   return <div className="space-y-5 pb-3 pt-2"><BackLink to="/workout">Workout</BackLink><PageHeader action={<button aria-label="Create workout" className="round-add-button" onClick={() => setCreating(true)}><Plus className="size-5" /></button>} eyebrow="Programming" title="Workouts" detail="Changes here never modify completed workout history." />
     {(templates?.length ?? 0) === 0 ? <div className="empty-card"><ListPlus className="size-6 text-sky-300" /><h2>Plan your first workout</h2><p>Build an ordered exercise list, then assign the workout to your week.</p><button className="button-primary mt-5" onClick={() => setCreating(true)}><Plus className="size-4" />Create workout</button></div> : <div className="space-y-2">{templates?.map((template) => <Link className="template-row" key={template.id} to={`/workout/templates/${template.id}`}><span className="grid size-10 place-items-center rounded-xl bg-sky-400/10 text-sky-300"><Dumbbell className="size-[18px]" /></span><span className="min-w-0 flex-1"><strong>{template.name}</strong><small>{template.notes || 'Tap to add exercises and targets'}</small></span><ChevronRight className="size-4 text-slate-600" /></Link>)}</div>}
-    {creating && <Modal onClose={() => setCreating(false)} title="New workout"><label className="field-label">Workout name<input autoFocus className="field-input mt-1" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void create() }} placeholder="e.g. Pull A" value={name} /></label><div className="mt-5 flex gap-3"><button className="button-secondary flex-1" onClick={() => setCreating(false)}>Cancel</button><button className="button-primary flex-1" disabled={!name.trim()} onClick={() => void create()}>Create</button></div></Modal>}
+    {creating && <Modal onClose={() => setCreating(false)} title="New workout"><label className="field-label">Workout name<input className="field-input mt-1" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void create() }} placeholder="e.g. Pull A" value={name} /></label><div className="mt-5 flex gap-3"><button className="button-secondary flex-1" onClick={() => setCreating(false)}>Cancel</button><button className="button-primary flex-1" disabled={!name.trim()} onClick={() => void create()}>Create</button></div></Modal>}
   </div>
 }
 

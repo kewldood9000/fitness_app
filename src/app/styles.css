@@ -379,12 +379,12 @@ button { cursor: pointer; }
 .modal-header { flex: 0 0 auto; }
 .modal-scroll { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scroll-padding-block: 1rem 5rem; -webkit-overflow-scrolling: touch; }
 .keyboard-open body { overflow: hidden; }
-.keyboard-open .modal-backdrop { align-items: flex-start; padding-top: 0.25rem; }
-.keyboard-open .modal-panel { height: calc(var(--visual-viewport-height, 100dvh) - 0.5rem); max-height: calc(var(--visual-viewport-height, 100dvh) - 0.5rem); }
+.keyboard-open .modal-backdrop { height: calc(var(--visual-viewport-height, 100dvh) - var(--keyboard-accessory-inset, 0px)); align-items: flex-start; padding-top: 0.25rem; }
+.keyboard-open .modal-panel { height: calc(var(--visual-viewport-height, 100dvh) - var(--keyboard-accessory-inset, 0px) - 0.5rem); max-height: calc(var(--visual-viewport-height, 100dvh) - var(--keyboard-accessory-inset, 0px) - 0.5rem); }
 .keyboard-open .modal-scroll { scroll-padding-bottom: 7rem; }
 .keyboard-open .modal-scroll::after { display: block; height: max(4rem, env(safe-area-inset-bottom)); content: ""; }
 .keyboard-open .bottom-nav { display: none; }
-.keyboard-open .app-main { padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
+.keyboard-open .app-main { padding-bottom: calc(2rem + var(--keyboard-accessory-inset, 0px) + env(safe-area-inset-bottom)); }
 .picker-row { display: flex; width: 100%; min-height: 3.9rem; align-items: center; gap: 0.75rem; border: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding: 0.65rem 0.8rem; color: inherit; background: rgba(24, 24, 27, 0.7); }
 .picker-row:last-child { border-bottom: 0; }
 .picker-row:hover { background: rgba(82, 167, 255, 0.09); }
