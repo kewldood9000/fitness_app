@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from '@/components/AppShell'
 import { db } from '@/db/database'
+import { refreshCalorieTargetFromLastCompletedWeek } from '@/db/repositories/progressRepository'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { NutritionPage } from '@/features/nutrition/NutritionPage'
 import { ProgressPage } from '@/features/progress/ProgressPage'
@@ -22,7 +23,7 @@ export function App() {
   const [databaseUnavailable, setDatabaseUnavailable] = useState(false)
 
   useEffect(() => {
-    void db.open().catch(() => setDatabaseUnavailable(true))
+    void db.open().then(() => { void refreshCalorieTargetFromLastCompletedWeek().catch(() => undefined) }).catch(() => setDatabaseUnavailable(true))
   }, [])
 
   return (

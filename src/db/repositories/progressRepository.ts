@@ -1,5 +1,7 @@
 import { db } from '@/db/database'
-import type { WeightLog, WorkoutSession, WorkoutSessionExercise, WorkoutSet } from '@/types/models'
+import { settingsRepository } from '@/db/repositories/settingsRepository'
+import type { WeightLog, WeightUnit, WorkoutSession, WorkoutSessionExercise, WorkoutSet } from '@/types/models'
+import { convertWeight, estimateCalories, type BodyProfile, type ProgressGoalSettings } from '@/utils/calorieEstimator'
 
 const now = () => new Date().toISOString()
 const newId = () => crypto.randomUUID()
@@ -27,6 +29,14 @@ export interface WeightHistoryRow extends WeightLog {
   dailyNet?: number
   weekAverage?: number
   averageNet?: number
+}
+
+export interface CompletedWeekAverage {
+  startDate: string
+  endDate: string
+  weight: number
+  unit: WeightUnit
+  entries: number
 }
 
 function average(values: number[]): number | undefined {
@@ -58,6 +68,64 @@ function mondayFor(dateKey: string): string {
   const date = new Date(`${dateKey}T12:00:00`)
   date.setDate(date.getDate() - ((date.getDay() + 6) % 7))
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function dateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+export function lastCompletedWeekAverage(items: WeightLog[], referenceDateKey: string, unit: WeightUnit): CompletedWeekAverage | undefined {
+  const currentMonday = new Date(`${mondayFor(referenceDateKey)}T12:00:00`)
+  const previousMonday = new Date(currentMonday)
+  previousMonday.setDate(previousMonday.getDate() - 7)
+  const previousSunday = new Date(currentMonday)
+  previousSunday.setDate(previousSunday.getDate() - 1)
+  const startDate = dateKey(previousMonday)
+  const endDate = dateKey(previousSunday)
+  const entries = items.filter((item) => item.date >= startDate && item.date <= endDate)
+  if (!entries.length) return undefined
+  return {
+    startDate,
+    endDate,
+    weight: round(average(entries.map((entry) => convertWeight(entry.weight, entry.unit, unit))) ?? 0),
+    unit,
+    entries: entries.length
+  }
+}
+
+export async function refreshCalorieTargetFromLastCompletedWeek(referenceDateKey = dateKey(new Date())): Promise<void> {
+  const [profileSetting, progressSetting, nutritionSetting, logs] = await Promise.all([
+    settingsRepository.get('body-profile'),
+    settingsRepository.get('progress-goals'),
+    settingsRepository.get('nutrition-goals'),
+    db.weightLogs.orderBy('date').toArray()
+  ])
+  const profile = profileSetting?.value as BodyProfile | undefined
+  const goals = progressSetting?.value as ProgressGoalSettings | undefined
+  if (!profile || !goals?.weeklyLossMode || !goals.weeklyLossValue) return
+  const goalUnit = goals.weightUnit ?? 'lb'
+  const completedWeek = lastCompletedWeekAverage(logs, referenceDateKey, goalUnit)
+  if (!completedWeek) return
+  const calculationProfile = { ...profile, weightKg: convertWeight(completedWeek.weight, completedWeek.unit, 'kg') }
+  const estimate = estimateCalories(calculationProfile, { mode: goals.weeklyLossMode, value: goals.weeklyLossValue, unit: goalUnit })
+  if (estimate.calorieTarget <= 0) return
+  const nutrition = (nutritionSetting?.value as Record<string, unknown> | undefined) ?? {}
+  await Promise.all([
+    settingsRepository.set('body-profile', calculationProfile),
+    settingsRepository.set('nutrition-goals', {
+      ...nutrition,
+      calories: estimate.calorieTarget,
+      automaticTdee: {
+        source: 'last-completed-week-average',
+        weight: completedWeek.weight,
+        unit: completedWeek.unit,
+        weekStart: completedWeek.startDate,
+        weekEnd: completedWeek.endDate,
+        entries: completedWeek.entries,
+        updatedAt: now()
+      }
+    })
+  ])
 }
 
 export function weightHistory(items: WeightLog[]): WeightHistoryRow[] {
@@ -118,16 +186,20 @@ export function markPersonalRecords(points: StrengthPoint[]): StrengthPoint[] {
 export const progressRepository = {
   getWeightLogs: () => db.weightLogs.orderBy('date').toArray(),
 
-  async logWeight(date: string, weight: number, unit: WeightLog['unit'], note?: string): Promise<void> {
+  async logWeight(date: string, weight: number, unit: WeightLog['unit'], note?: string, recalculationDateKey = dateKey(new Date())): Promise<void> {
     const timestamp = now()
     const existing = await db.weightLogs.where('date').equals(date).first()
     const record: WeightLog = existing
       ? { ...existing, weight, unit, note: note?.trim() || undefined, updatedAt: timestamp }
       : { id: newId(), date, weight, unit, note: note?.trim() || undefined, createdAt: timestamp, updatedAt: timestamp }
     await db.weightLogs.put(record)
+    await refreshCalorieTargetFromLastCompletedWeek(recalculationDateKey)
   },
 
-  deleteWeightLog: (id: string) => db.weightLogs.delete(id),
+  async deleteWeightLog(id: string, recalculationDateKey = dateKey(new Date())): Promise<void> {
+    await db.weightLogs.delete(id)
+    await refreshCalorieTargetFromLastCompletedWeek(recalculationDateKey)
+  },
 
   async getStrengthProgress(exerciseId: string): Promise<StrengthPoint[]> {
     const matchingExercises = await db.workoutSessionExercises.where('exerciseId').equals(exerciseId).toArray()

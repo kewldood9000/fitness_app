@@ -16,6 +16,8 @@
 
 html, body, #root { min-height: 100%; }
 
+input, textarea, select, [contenteditable="true"] { scroll-margin-block: 5rem; }
+
 body {
   min-width: 320px;
   margin: 0;
@@ -372,8 +374,13 @@ button { cursor: pointer; }
 .schedule-row small { display: block; margin-top: 0.14rem; color: #71809a; font-size: 0.72rem; }
 .schedule-select { width: auto; max-width: 55%; min-height: 2.5rem; padding: 0.35rem 1.8rem 0.35rem 0.55rem; color: #cbd5e1; font-size: 0.77rem; }
 
-.modal-backdrop { position: fixed; z-index: 60; inset: 0; display: flex; align-items: end; justify-content: center; padding: 0; background: rgba(3, 7, 18, 0.72); backdrop-filter: blur(5px); }
-.modal-panel { width: min(100%, 34rem); max-height: 84dvh; border: 1px solid rgba(255, 255, 255, 0.11); border-bottom: 0; border-radius: 1.65rem 1.65rem 0 0; background: #18181b; box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.35); }
+.modal-backdrop { position: fixed; z-index: 60; top: var(--visual-viewport-top, 0); right: 0; bottom: auto; left: 0; display: flex; height: var(--visual-viewport-height, 100dvh); align-items: end; justify-content: center; padding: 0; background: rgba(3, 7, 18, 0.72); backdrop-filter: blur(5px); }
+.modal-panel { display: flex; width: min(100%, 34rem); max-height: min(84dvh, calc(var(--visual-viewport-height, 100dvh) - 0.5rem)); flex-direction: column; border: 1px solid rgba(255, 255, 255, 0.11); border-bottom: 0; border-radius: 1.65rem 1.65rem 0 0; background: #18181b; box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.35); }
+.modal-header { flex: 0 0 auto; }
+.modal-scroll { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scroll-padding-block: 1rem 5rem; -webkit-overflow-scrolling: touch; }
+.keyboard-open .modal-panel { max-height: calc(var(--visual-viewport-height, 100dvh) - 0.25rem); }
+.keyboard-open .bottom-nav { display: none; }
+.keyboard-open .app-main { padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
 .picker-row { display: flex; width: 100%; min-height: 3.9rem; align-items: center; gap: 0.75rem; border: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding: 0.65rem 0.8rem; color: inherit; background: rgba(24, 24, 27, 0.7); }
 .picker-row:last-child { border-bottom: 0; }
 .picker-row:hover { background: rgba(82, 167, 255, 0.09); }
@@ -423,7 +430,7 @@ button { cursor: pointer; }
 .nutrition-date-button:hover { color: #9dceff; background: rgba(82, 167, 255, 0.08); }
 
 .nutrition-summary-card { overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.055); border-radius: 1.55rem; padding: 0.9rem 1.15rem 0.75rem; background: #1b1b1f; box-shadow: var(--shadow-card); }
-.nutrition-summary-tabs { display: grid; width: min(100%, 17.5rem); grid-template-columns: 1fr 1fr; border-radius: 999px; padding: 0.16rem; background: #2a2a30; }
+.nutrition-summary-tabs { display: grid; width: min(100%, 17.5rem); grid-template-columns: 1fr 1fr; margin-inline: auto; border-radius: 999px; padding: 0.16rem; background: #2a2a30; }
 .nutrition-summary-tabs button { min-height: 2rem; border: 0; border-radius: 999px; padding: 0.35rem 0.75rem; color: #85858f; background: transparent; font-size: 0.82rem; font-weight: 650; transition: color 150ms ease, background 150ms ease; }
 .nutrition-summary-tabs button.active { color: #80bdff; background: rgba(52, 113, 202, 0.24); }
 .nutrition-calorie-total { display: flex; align-items: baseline; gap: 0.65rem; margin-top: 1rem; }
@@ -524,8 +531,9 @@ button { cursor: pointer; }
   align-items: center;
   gap: 0.65rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  padding: 0.4rem 0;
 }
+.food-log-row { padding: 0.4rem 0; }
+.food-result { padding: 0.55rem 0.85rem; }
 .food-log-row:last-child, .food-result:last-child { border-bottom: 0; }
 .food-log-row strong, .food-result strong { display: block; overflow: hidden; color: #e8edf5; font-size: 0.82rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .food-log-row small, .food-result small { display: block; margin-top: 0.1rem; color: #71809a; font-size: 0.68rem; line-height: 1rem; }

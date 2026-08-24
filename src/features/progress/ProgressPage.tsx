@@ -26,8 +26,8 @@ function Sheet({ onClose, defaultUnit = 'lb' }: { onClose: () => void; defaultUn
   }
 
   return <div aria-labelledby={titleId} aria-modal="true" className="modal-backdrop" role="dialog"><div className="modal-panel">
-    <div className="flex items-center justify-between px-5 pb-4 pt-5"><h2 className="text-lg font-semibold text-slate-50" id={titleId}>Log bodyweight</h2><button aria-label="Close" className="workout-icon-button" onClick={onClose}><X className="size-4" /></button></div>
-    <div className="space-y-3 px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
+    <div className="modal-header flex items-center justify-between px-5 pb-4 pt-5"><h2 className="text-lg font-semibold text-slate-50" id={titleId}>Log bodyweight</h2><button aria-label="Close" className="workout-icon-button" onClick={onClose}><X className="size-4" /></button></div>
+    <div className="modal-scroll space-y-3 px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
       <div className="grid grid-cols-[1fr_5rem] gap-3"><label className="field-label">Weight<input autoFocus className="field-input" inputMode="decimal" min="0.1" onChange={(event) => setWeight(event.target.value)} placeholder="0.0" step="0.1" type="number" value={weight} /></label><label className="field-label">Unit<select className="field-input" onChange={(event) => setUnit(event.target.value as 'lb' | 'kg')} value={unit}><option value="lb">lb</option><option value="kg">kg</option></select></label></div>
       <label className="field-label">Date<input className="field-input" onChange={(event) => setDate(event.target.value)} type="date" value={date} /></label>
       <label className="field-label">Note <span className="font-normal text-slate-600">(optional)</span><input className="field-input" onChange={(event) => setNote(event.target.value)} placeholder="Optional note" value={note} /></label>
@@ -55,36 +55,43 @@ export function ProgressPage() {
   const current = logs?.at(-1)
   const unit = current?.unit ?? preferredUnit
   const normalizedLogs = useMemo(() => (logs ?? []).map((item) => ({ ...item, weight: convertWeight(item.weight, item.unit, unit), unit })), [logs, unit])
+  const todayKey = toDateKey(new Date())
+  const todayDate = new Date(`${todayKey}T12:00:00`)
+  const daysInRange = range === '1m' ? 31 : range === '3m' ? 92 : range === '6m' ? 184 : undefined
+  const rangeStartKey = daysInRange == null ? undefined : toDateKey(addDays(todayDate, -daysInRange))
+  const allStartKey = [normalizedLogs[0]?.date, goals.trendStartDate, todayKey].filter((date): date is string => Boolean(date)).sort()[0]
+  const axisStartKey = rangeStartKey ?? allStartKey
+  const axisEndKey = goals.trendStartDate ? toDateKey(addDays(todayDate, 28)) : todayKey
+  const axisDomain: [number, number] = [new Date(`${axisStartKey}T12:00:00`).getTime(), new Date(`${axisEndKey}T12:00:00`).getTime()]
+  const axisTickCount = range === '1m' ? 4 : range === '3m' ? 5 : 6
+  const axisTicks = Array.from({ length: axisTickCount }, (_, index) => axisDomain[0] + (axisDomain[1] - axisDomain[0]) * index / (axisTickCount - 1))
   const visibleWeights = useMemo(() => {
-    if (range === 'all') return normalizedLogs
-    const days = range === '1m' ? 31 : range === '3m' ? 92 : 184
-    const cutoff = new Date()
-    cutoff.setDate(cutoff.getDate() - days)
-    return normalizedLogs.filter((item) => new Date(`${item.date}T12:00:00`) >= cutoff)
-  }, [normalizedLogs, range])
+    if (!rangeStartKey) return normalizedLogs
+    return normalizedLogs.filter((item) => item.date >= rangeStartKey)
+  }, [normalizedLogs, rangeStartKey])
   const actualPoints = trendMode === 'weekly' ? weeklyAverage(visibleWeights) : visibleWeights.map((item) => ({ date: item.date, weight: item.weight }))
-  const chartPoints = new Map<string, { dateKey: string; date: string; weight?: number; goal?: number }>()
+  const chartPoints = new Map<string, { dateKey: string; date: string; timestamp: number; weight?: number; goal?: number }>()
   const labelFor = (date: string) => new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(`${date}T12:00:00`))
-  actualPoints.forEach((item) => chartPoints.set(item.date, { dateKey: item.date, date: labelFor(item.date), weight: Math.round(item.weight * 10) / 10 }))
+  const timestampFor = (date: string) => new Date(`${date}T12:00:00`).getTime()
+  actualPoints.forEach((item) => chartPoints.set(item.date, { dateKey: item.date, date: labelFor(item.date), timestamp: timestampFor(item.date), weight: Math.round(item.weight * 10) / 10 }))
   if (goals.trendStartDate) {
     const goalDates = new Set(actualPoints.map((item) => item.date))
     let start = new Date(`${goals.trendStartDate}T12:00:00`)
-    if (range !== 'all') {
-      const days = range === '1m' ? 31 : range === '3m' ? 92 : 184
-      const cutoff = addDays(new Date(), -days)
+    if (rangeStartKey) {
+      const cutoff = new Date(`${rangeStartKey}T12:00:00`)
       if (start < cutoff) start = cutoff
     }
-    const end = addDays(new Date(), 28)
+    const end = new Date(`${axisEndKey}T12:00:00`)
     for (let date = start; date <= end; date = addDays(date, 7)) goalDates.add(toDateKey(date))
-    goalDates.add(toDateKey(new Date()))
+    goalDates.add(todayKey)
     goalDates.forEach((date) => {
       const planned = plannedWeightForDate(goals, date)
       if (planned == null) return
       const goal = convertWeight(planned, goals.weightUnit ?? unit, unit)
-      chartPoints.set(date, { ...(chartPoints.get(date) ?? { dateKey: date, date: labelFor(date) }), goal })
+      chartPoints.set(date, { ...(chartPoints.get(date) ?? { dateKey: date, date: labelFor(date), timestamp: timestampFor(date) }), goal })
     })
   }
-  const chartData = [...chartPoints.values()].sort((firstPoint, secondPoint) => firstPoint.dateKey.localeCompare(secondPoint.dateKey))
+  const chartData = [...chartPoints.values()].sort((firstPoint, secondPoint) => firstPoint.timestamp - secondPoint.timestamp)
   const currentDisplay = normalizedLogs.at(-1)
   const previousDayChange = latestPreviousDayChange(normalizedLogs)
   const previousDayStatus = previousDayChange == null
@@ -120,7 +127,7 @@ export function ProgressPage() {
       <div className="flex items-center justify-between gap-3"><h2 className="section-title">Bodyweight trend</h2><div className="flex rounded-lg bg-slate-800 p-0.5">{(['1m', '3m', '6m', 'all'] as Range[]).map((item) => <button className={`range-button ${range === item ? 'range-button-active' : ''}`} key={item} onClick={() => setRange(item)}>{item}</button>)}</div></div>
       <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-zinc-950/55 p-1"><button aria-pressed={trendMode === 'daily'} className={`goal-mode-button ${trendMode === 'daily' ? 'goal-mode-button-active' : ''}`} onClick={() => setTrendMode('daily')}>Daily weight</button><button aria-pressed={trendMode === 'weekly'} className={`goal-mode-button ${trendMode === 'weekly' ? 'goal-mode-button-active' : ''}`} onClick={() => setTrendMode('weekly')}>Weekly average</button></div>
       <div className="mt-3 flex flex-wrap gap-3 text-[10px] font-semibold text-zinc-500"><span className="inline-flex items-center gap-1.5"><i className="h-0.5 w-4 bg-sky-300" />{trendMode === 'weekly' ? 'Weekly average' : 'Daily weight'}</span>{goals.trendStartDate && <span className="inline-flex items-center gap-1.5"><i className="h-0.5 w-4 border-t border-dashed border-amber-300" />Goal pace</span>}</div>
-      {chartData.length < 2 ? <div className="chart-empty"><Scale className="size-5" />Log bodyweight or set a calorie goal to reveal your trend.</div> : <div className="mt-4 h-56"><ResponsiveContainer height="100%" width="100%"><LineChart data={chartData} margin={{ top: 5, right: 4, bottom: 0, left: -18 }}><CartesianGrid stroke="#334155" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" minTickGap={30} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} /><YAxis domain={['dataMin - 1', 'dataMax + 1']} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} /><Tooltip contentStyle={{ border: '1px solid #334155', borderRadius: 12, background: '#182238', color: '#e8edf5' }} /><Line connectNulls dataKey="weight" dot={{ r: trendMode === 'daily' ? 2 : 3, fill: '#72baff' }} name={`${trendMode === 'weekly' ? 'Weekly average' : 'Daily weight'} (${unit})`} stroke="#72baff" strokeWidth={2} type="monotone" />{goals.trendStartDate && <Line connectNulls dataKey="goal" dot={false} name="Goal pace" stroke="#fcd34d" strokeDasharray="5 4" strokeWidth={2} type="monotone" />}</LineChart></ResponsiveContainer></div>}
+      {chartData.length < 2 ? <div className="chart-empty"><Scale className="size-5" />Log bodyweight or set a calorie goal to reveal your trend.</div> : <div className="mt-4 h-56"><ResponsiveContainer height="100%" width="100%"><LineChart data={chartData} margin={{ top: 5, right: 4, bottom: 0, left: -18 }}><CartesianGrid stroke="#334155" strokeDasharray="3 3" vertical={false} /><XAxis allowDataOverflow dataKey="timestamp" domain={axisDomain} interval="preserveStartEnd" minTickGap={18} scale="time" stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickFormatter={(timestamp) => labelFor(toDateKey(new Date(Number(timestamp))))} tickLine={false} ticks={axisTicks} type="number" /><YAxis domain={['dataMin - 1', 'dataMax + 1']} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} /><Tooltip contentStyle={{ border: '1px solid #334155', borderRadius: 12, background: '#182238', color: '#e8edf5' }} labelFormatter={(timestamp) => labelFor(toDateKey(new Date(Number(timestamp))))} /><Line connectNulls dataKey="weight" dot={{ r: trendMode === 'daily' ? 2 : 3, fill: '#72baff' }} name={`${trendMode === 'weekly' ? 'Weekly average' : 'Daily weight'} (${unit})`} stroke="#72baff" strokeWidth={2} type="monotone" />{goals.trendStartDate && <Line connectNulls dataKey="goal" dot={false} name="Goal pace" stroke="#fcd34d" strokeDasharray="5 4" strokeWidth={2} type="monotone" />}</LineChart></ResponsiveContainer></div>}
       <div className="mt-4 border-t border-white/[0.07] pt-3">
         <button aria-expanded={showWeightHistory} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-2 text-left text-sm font-semibold text-slate-200 transition hover:bg-white/[0.04]" onClick={() => setShowWeightHistory((currentValue) => !currentValue)}><span>Weight history <small className="ml-1 font-normal text-slate-500">({historyRows.length})</small></span><ChevronDown className={`size-4 text-sky-300 transition-transform ${showWeightHistory ? 'rotate-180' : ''}`} /></button>
         {showWeightHistory && (historyRows.length === 0 ? <p className="mt-2 rounded-xl bg-zinc-900/70 px-4 py-5 text-center text-sm text-zinc-500">No weigh-ins logged yet.</p> : <div className="mt-2 overflow-x-auto rounded-xl border border-white/[0.07]">

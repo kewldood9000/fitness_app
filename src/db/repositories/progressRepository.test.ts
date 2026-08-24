@@ -1,7 +1,8 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '@/db/database'
-import { latestPreviousDayChange, markPersonalRecords, movingAverage, progressRepository, weeklyAverage, weightHistory, type StrengthPoint } from './progressRepository'
+import { settingsRepository } from '@/db/repositories/settingsRepository'
+import { latestPreviousDayChange, lastCompletedWeekAverage, markPersonalRecords, movingAverage, progressRepository, weeklyAverage, weightHistory, type StrengthPoint } from './progressRepository'
 import type { WeightLog } from '@/types/models'
 
 function weight(date: string, value: number): WeightLog {
@@ -11,6 +12,7 @@ function weight(date: string, value: number): WeightLog {
 beforeEach(async () => {
   await db.open()
   await db.weightLogs.clear()
+  await db.settings.clear()
 })
 
 describe('weight log management', () => {
@@ -81,6 +83,36 @@ describe('latestPreviousDayChange', () => {
       weight('2026-08-20', 256.6),
       weight('2026-08-23', 258)
     ])).toBeUndefined()
+  })
+})
+
+describe('automatic TDEE calculation weight', () => {
+  const completedWeek = [
+    weight('2026-08-17', 257.4), weight('2026-08-18', 257.3), weight('2026-08-19', 258.2),
+    weight('2026-08-20', 256.6), weight('2026-08-21', 255.4), weight('2026-08-22', 258), weight('2026-08-23', 258)
+  ]
+
+  it('uses the previous completed Monday-to-Sunday average', () => {
+    expect(lastCompletedWeekAverage([...completedWeek, weight('2026-08-24', 250)], '2026-08-24', 'lb')).toEqual({
+      startDate: '2026-08-17', endDate: '2026-08-23', weight: 257.2714, unit: 'lb', entries: 7
+    })
+  })
+
+  it('refreshes the saved calorie target after completed-week logs change', async () => {
+    await settingsRepository.set('body-profile', { sex: 'male', age: 30, heightCm: 180, weightKg: 120, activityFactor: 1.55 })
+    await settingsRepository.set('progress-goals', { weeklyLossMode: 'fixed', weeklyLossValue: 1, weightUnit: 'lb' })
+    await settingsRepository.set('nutrition-goals', { protein: 180 })
+    await db.weightLogs.bulkPut(completedWeek.slice(0, -1))
+
+    await progressRepository.logWeight('2026-08-23', 258, 'lb', undefined, '2026-08-24')
+
+    expect((await settingsRepository.get('nutrition-goals'))?.value).toMatchObject({
+      protein: 180,
+      automaticTdee: { source: 'last-completed-week-average', weekStart: '2026-08-17', weekEnd: '2026-08-23', weight: 257.2714, unit: 'lb', entries: 7 }
+    })
+    const logged = await db.weightLogs.where('date').equals('2026-08-23').first()
+    await progressRepository.deleteWeightLog(logged!.id, '2026-08-24')
+    expect((await settingsRepository.get('nutrition-goals'))?.value).toMatchObject({ automaticTdee: { entries: 6 } })
   })
 })
 

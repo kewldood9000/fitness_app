@@ -1,5 +1,5 @@
 import { ChartLine, Dumbbell, House, Settings, Utensils } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { AppLogo } from './AppLogo'
 
@@ -14,7 +14,73 @@ const navigation = [
   { to: '/progress', label: 'Progress', icon: ChartLine }
 ]
 
+function useKeyboardViewport() {
+  useEffect(() => {
+    const root = document.documentElement
+    const visualViewport = window.visualViewport
+    let largestViewportHeight = Math.max(window.innerHeight, visualViewport?.height ?? 0)
+    let revealTimer: number | undefined
+
+    function revealFocusedField() {
+      const focused = document.activeElement
+      if (!(focused instanceof HTMLElement) || !focused.matches('input, textarea, select, [contenteditable="true"]')) return
+      const scroller = focused.closest<HTMLElement>('.modal-scroll')
+      if (!scroller) {
+        focused.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+        return
+      }
+      const fieldBounds = focused.getBoundingClientRect()
+      const scrollBounds = scroller.getBoundingClientRect()
+      const breathingRoom = 20
+      if (fieldBounds.bottom > scrollBounds.bottom - breathingRoom) scroller.scrollBy({ behavior: 'smooth', top: fieldBounds.bottom - scrollBounds.bottom + breathingRoom })
+      else if (fieldBounds.top < scrollBounds.top + breathingRoom) scroller.scrollBy({ behavior: 'smooth', top: fieldBounds.top - scrollBounds.top - breathingRoom })
+    }
+
+    function scheduleReveal() {
+      window.clearTimeout(revealTimer)
+      revealTimer = window.setTimeout(revealFocusedField, 90)
+    }
+
+    function updateViewport() {
+      const viewportHeight = visualViewport?.height ?? window.innerHeight
+      const viewportTop = visualViewport?.offsetTop ?? 0
+      largestViewportHeight = Math.max(largestViewportHeight, viewportHeight)
+      const keyboardThreshold = Math.max(120, largestViewportHeight * 0.18)
+      const keyboardOpen = largestViewportHeight - viewportHeight > keyboardThreshold
+      root.style.setProperty('--visual-viewport-height', `${Math.round(viewportHeight)}px`)
+      root.style.setProperty('--visual-viewport-top', `${Math.round(viewportTop)}px`)
+      root.classList.toggle('keyboard-open', keyboardOpen)
+      if (keyboardOpen) scheduleReveal()
+    }
+
+    function resetViewportBaseline() {
+      largestViewportHeight = Math.max(window.innerHeight, visualViewport?.height ?? 0)
+      updateViewport()
+    }
+
+    updateViewport()
+    visualViewport?.addEventListener('resize', updateViewport)
+    visualViewport?.addEventListener('scroll', updateViewport)
+    window.addEventListener('resize', updateViewport)
+    window.addEventListener('orientationchange', resetViewportBaseline)
+    document.addEventListener('focusin', scheduleReveal)
+
+    return () => {
+      visualViewport?.removeEventListener('resize', updateViewport)
+      visualViewport?.removeEventListener('scroll', updateViewport)
+      window.removeEventListener('resize', updateViewport)
+      window.removeEventListener('orientationchange', resetViewportBaseline)
+      document.removeEventListener('focusin', scheduleReveal)
+      window.clearTimeout(revealTimer)
+      root.classList.remove('keyboard-open')
+      root.style.removeProperty('--visual-viewport-height')
+      root.style.removeProperty('--visual-viewport-top')
+    }
+  }, [])
+}
+
 export function AppShell({ children }: AppShellProps) {
+  useKeyboardViewport()
   const location = useLocation()
   const isSettings = location.pathname === '/settings'
   const isNutrition = location.pathname === '/nutrition'
@@ -32,7 +98,7 @@ export function AppShell({ children }: AppShellProps) {
           </NavLink>
         </header>}
 
-      <main className="mx-auto w-full max-w-lg px-5 pb-[calc(6.75rem+env(safe-area-inset-bottom))]">{children}</main>
+      <main className="app-main mx-auto w-full max-w-lg px-5 pb-[calc(6.75rem+env(safe-area-inset-bottom))]">{children}</main>
 
       <nav aria-label="Primary navigation" className="bottom-nav">
         <div className="mx-auto grid max-w-lg grid-cols-4 px-3 pt-2">

@@ -80,11 +80,11 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
   return (
     <div aria-labelledby={titleId} aria-modal="true" className="modal-backdrop" role="dialog">
       <div className="modal-panel">
-        <div className="flex items-center justify-between gap-4 px-5 pb-4 pt-5">
+        <div className="modal-header flex items-center justify-between gap-4 px-5 pb-4 pt-5">
           <h2 className="text-lg font-semibold tracking-[-0.03em] text-slate-50" id={titleId}>{title}</h2>
           <IconButton label="Close" onClick={onClose}><X className="size-4" /></IconButton>
         </div>
-        <div className="max-h-[72dvh] overflow-y-auto px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">{children}</div>
+        <div className="modal-scroll px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">{children}</div>
       </div>
     </div>
   )
