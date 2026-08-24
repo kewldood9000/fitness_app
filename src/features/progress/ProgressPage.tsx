@@ -55,21 +55,22 @@ export function ProgressPage() {
   const current = logs?.at(-1)
   const unit = current?.unit ?? preferredUnit
   const normalizedLogs = useMemo(() => (logs ?? []).map((item) => ({ ...item, weight: convertWeight(item.weight, item.unit, unit), unit })), [logs, unit])
+  const goalWeightDisplay = goals.goalWeight == null ? undefined : convertWeight(goals.goalWeight, goals.weightUnit ?? unit, unit)
   const todayKey = toDateKey(new Date())
   const todayDate = new Date(`${todayKey}T12:00:00`)
   const daysInRange = range === '1m' ? 31 : range === '3m' ? 92 : range === '6m' ? 184 : undefined
   const rangeStartKey = daysInRange == null ? undefined : toDateKey(addDays(todayDate, -daysInRange))
-  const allStartKey = [normalizedLogs[0]?.date, goals.trendStartDate, todayKey].filter((date): date is string => Boolean(date)).sort()[0]
-  const axisStartKey = rangeStartKey ?? allStartKey
-  const axisEndKey = goals.trendStartDate ? toDateKey(addDays(todayDate, 28)) : todayKey
+  const trackingStartKey = normalizedLogs[0]?.date ?? goals.trendStartDate ?? todayKey
+  const axisStartKey = rangeStartKey && rangeStartKey > trackingStartKey ? rangeStartKey : trackingStartKey
+  const axisEndKey = todayKey
   const axisDomain: [number, number] = [new Date(`${axisStartKey}T12:00:00`).getTime(), new Date(`${axisEndKey}T12:00:00`).getTime()]
   const axisTickCount = range === '1m' ? 4 : range === '3m' ? 5 : 6
   const axisTicks = Array.from({ length: axisTickCount }, (_, index) => axisDomain[0] + (axisDomain[1] - axisDomain[0]) * index / (axisTickCount - 1))
   const visibleWeights = useMemo(() => {
-    if (!rangeStartKey) return normalizedLogs
-    return normalizedLogs.filter((item) => item.date >= rangeStartKey)
-  }, [normalizedLogs, rangeStartKey])
-  const actualPoints = trendMode === 'weekly' ? weeklyAverage(visibleWeights) : visibleWeights.map((item) => ({ date: item.date, weight: item.weight }))
+    return normalizedLogs.filter((item) => item.date >= axisStartKey && item.date <= axisEndKey)
+  }, [normalizedLogs, axisStartKey, axisEndKey])
+  const actualPoints = (trendMode === 'weekly' ? weeklyAverage(visibleWeights) : visibleWeights.map((item) => ({ date: item.date, weight: item.weight })))
+    .map((item, index) => index === 0 && item.date < axisStartKey ? { ...item, date: axisStartKey } : item)
   const chartPoints = new Map<string, { dateKey: string; date: string; timestamp: number; weight?: number; goal?: number }>()
   const labelFor = (date: string) => new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(`${date}T12:00:00`))
   const timestampFor = (date: string) => new Date(`${date}T12:00:00`).getTime()
@@ -77,10 +78,8 @@ export function ProgressPage() {
   if (goals.trendStartDate) {
     const goalDates = new Set(actualPoints.map((item) => item.date))
     let start = new Date(`${goals.trendStartDate}T12:00:00`)
-    if (rangeStartKey) {
-      const cutoff = new Date(`${rangeStartKey}T12:00:00`)
-      if (start < cutoff) start = cutoff
-    }
+    const cutoff = new Date(`${axisStartKey}T12:00:00`)
+    if (start < cutoff) start = cutoff
     const end = new Date(`${axisEndKey}T12:00:00`)
     for (let date = start; date <= end; date = addDays(date, 7)) goalDates.add(toDateKey(date))
     goalDates.add(todayKey)
@@ -92,6 +91,13 @@ export function ProgressPage() {
     })
   }
   const chartData = [...chartPoints.values()].sort((firstPoint, secondPoint) => firstPoint.timestamp - secondPoint.timestamp)
+  const chartWeights = chartData.flatMap((item) => [item.weight, item.goal].filter((value): value is number => value != null))
+  const dataFloor = chartWeights.length ? Math.min(...chartWeights) : 0
+  const dataCeiling = chartWeights.length ? Math.max(...chartWeights) : 1
+  const yAxisFloor = goalWeightDisplay != null && goalWeightDisplay < dataCeiling ? goalWeightDisplay : Math.floor(dataFloor - 1)
+  const yAxisCeiling = Math.max(yAxisFloor + 1, Math.ceil(dataCeiling + 1))
+  const yAxisDomain: [number, number] = [yAxisFloor, yAxisCeiling]
+  const yAxisTicks = Array.from({ length: 4 }, (_, index) => Math.round((yAxisFloor + (yAxisCeiling - yAxisFloor) * index / 3) * 10) / 10)
   const currentDisplay = normalizedLogs.at(-1)
   const previousDayChange = latestPreviousDayChange(normalizedLogs)
   const previousDayStatus = previousDayChange == null
@@ -109,7 +115,6 @@ export function ProgressPage() {
   const latestStrength = strength?.at(-1)
   const firstStrength = strength?.[0]
   const latestPrs = latestStrength ? [latestStrength.isWeightPr && 'Weight PR', latestStrength.isRepPr && 'Rep PR', latestStrength.isVolumePr && 'Volume PR', latestStrength.isEstimated1RMPr && '1RM PR'].filter(Boolean) : []
-  const goalWeightDisplay = goals.goalWeight == null ? undefined : convertWeight(goals.goalWeight, goals.weightUnit ?? unit, unit)
   const goalProgress = currentDisplay ? calculateWeightGoalProgress(goals, currentDisplay.weight, unit) : undefined
   const historyRows = useMemo(() => weightHistory(normalizedLogs), [normalizedLogs])
   const historyDate = (date: string) => new Intl.DateTimeFormat('en-US', { month: 'numeric', day: 'numeric' }).format(new Date(`${date}T12:00:00`))
@@ -127,7 +132,7 @@ export function ProgressPage() {
       <div className="flex items-center justify-between gap-3"><h2 className="section-title">Bodyweight trend</h2><div className="flex rounded-lg bg-slate-800 p-0.5">{(['1m', '3m', '6m', 'all'] as Range[]).map((item) => <button className={`range-button ${range === item ? 'range-button-active' : ''}`} key={item} onClick={() => setRange(item)}>{item}</button>)}</div></div>
       <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-zinc-950/55 p-1"><button aria-pressed={trendMode === 'daily'} className={`goal-mode-button ${trendMode === 'daily' ? 'goal-mode-button-active' : ''}`} onClick={() => setTrendMode('daily')}>Daily weight</button><button aria-pressed={trendMode === 'weekly'} className={`goal-mode-button ${trendMode === 'weekly' ? 'goal-mode-button-active' : ''}`} onClick={() => setTrendMode('weekly')}>Weekly average</button></div>
       <div className="mt-3 flex flex-wrap gap-3 text-[10px] font-semibold text-zinc-500"><span className="inline-flex items-center gap-1.5"><i className="h-0.5 w-4 bg-sky-300" />{trendMode === 'weekly' ? 'Weekly average' : 'Daily weight'}</span>{goals.trendStartDate && <span className="inline-flex items-center gap-1.5"><i className="h-0.5 w-4 border-t border-dashed border-amber-300" />Goal pace</span>}</div>
-      {chartData.length < 2 ? <div className="chart-empty"><Scale className="size-5" />Log bodyweight or set a calorie goal to reveal your trend.</div> : <div className="mt-4 h-56"><ResponsiveContainer height="100%" width="100%"><LineChart data={chartData} margin={{ top: 5, right: 4, bottom: 0, left: -18 }}><CartesianGrid stroke="#334155" strokeDasharray="3 3" vertical={false} /><XAxis allowDataOverflow dataKey="timestamp" domain={axisDomain} interval="preserveStartEnd" minTickGap={18} scale="time" stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickFormatter={(timestamp) => labelFor(toDateKey(new Date(Number(timestamp))))} tickLine={false} ticks={axisTicks} type="number" /><YAxis domain={['dataMin - 1', 'dataMax + 1']} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} /><Tooltip contentStyle={{ border: '1px solid #334155', borderRadius: 12, background: '#182238', color: '#e8edf5' }} labelFormatter={(timestamp) => labelFor(toDateKey(new Date(Number(timestamp))))} /><Line connectNulls dataKey="weight" dot={{ r: trendMode === 'daily' ? 2 : 3, fill: '#72baff' }} name={`${trendMode === 'weekly' ? 'Weekly average' : 'Daily weight'} (${unit})`} stroke="#72baff" strokeWidth={2} type="monotone" />{goals.trendStartDate && <Line connectNulls dataKey="goal" dot={false} name="Goal pace" stroke="#fcd34d" strokeDasharray="5 4" strokeWidth={2} type="monotone" />}</LineChart></ResponsiveContainer></div>}
+      {chartData.length < 2 ? <div className="chart-empty"><Scale className="size-5" />Log bodyweight or set a calorie goal to reveal your trend.</div> : <div className="mt-4 h-56"><ResponsiveContainer height="100%" width="100%"><LineChart data={chartData} margin={{ top: 5, right: 4, bottom: 0, left: -18 }}><CartesianGrid stroke="#334155" strokeDasharray="3 3" vertical={false} /><XAxis allowDataOverflow dataKey="timestamp" domain={axisDomain} interval="preserveStartEnd" minTickGap={18} scale="time" stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickFormatter={(timestamp) => labelFor(toDateKey(new Date(Number(timestamp))))} tickLine={false} ticks={axisTicks} type="number" /><YAxis allowDataOverflow domain={yAxisDomain} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} ticks={yAxisTicks} /><Tooltip contentStyle={{ border: '1px solid #334155', borderRadius: 12, background: '#182238', color: '#e8edf5' }} labelFormatter={(timestamp) => labelFor(toDateKey(new Date(Number(timestamp))))} /><Line connectNulls dataKey="weight" dot={{ r: trendMode === 'daily' ? 2 : 3, fill: '#72baff' }} name={`${trendMode === 'weekly' ? 'Weekly average' : 'Daily weight'} (${unit})`} stroke="#72baff" strokeWidth={2} type="monotone" />{goals.trendStartDate && <Line connectNulls dataKey="goal" dot={false} name="Goal pace" stroke="#fcd34d" strokeDasharray="5 4" strokeWidth={2} type="monotone" />}</LineChart></ResponsiveContainer></div>}
       <div className="mt-4 border-t border-white/[0.07] pt-3">
         <button aria-expanded={showWeightHistory} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-2 text-left text-sm font-semibold text-slate-200 transition hover:bg-white/[0.04]" onClick={() => setShowWeightHistory((currentValue) => !currentValue)}><span>Weight history <small className="ml-1 font-normal text-slate-500">({historyRows.length})</small></span><ChevronDown className={`size-4 text-sky-300 transition-transform ${showWeightHistory ? 'rotate-180' : ''}`} /></button>
         {showWeightHistory && (historyRows.length === 0 ? <p className="mt-2 rounded-xl bg-zinc-900/70 px-4 py-5 text-center text-sm text-zinc-500">No weigh-ins logged yet.</p> : <div className="mt-2 overflow-x-auto rounded-xl border border-white/[0.07]">

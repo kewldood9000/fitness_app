@@ -96,15 +96,25 @@ export const nutritionRepository = {
   },
 
   async getFavorites(): Promise<FoodDetails[]> {
-    const refs = await db.favorites.orderBy('updatedAt').reverse().toArray()
+    const refs = await db.favorites.toArray()
     const items = await Promise.all(refs.map((ref) => nutritionRepository.getFoodDetails(ref.foodId)))
-    return items.filter((item): item is FoodDetails => Boolean(item))
+    return items
+      .filter((item): item is FoodDetails => Boolean(item))
+      .sort((first, second) => first.food.name.localeCompare(second.food.name, undefined, { sensitivity: 'base' }))
   },
 
   async getRecents(limit = 10): Promise<FoodDetails[]> {
     const refs = await db.recentFoods.orderBy('updatedAt').reverse().limit(limit).toArray()
     const items = await Promise.all(refs.map((ref) => nutritionRepository.getFoodDetails(ref.foodId)))
     return items.filter((item): item is FoodDetails => Boolean(item))
+  },
+
+  async getCustomFoods(): Promise<FoodDetails[]> {
+    const foods = await db.foods.where('source').equals('CUSTOM').toArray()
+    const items = await Promise.all(foods.map((food) => nutritionRepository.getFoodDetails(food.id)))
+    return items
+      .filter((item): item is FoodDetails => Boolean(item))
+      .sort((first, second) => first.food.name.localeCompare(second.food.name, undefined, { sensitivity: 'base' }))
   },
 
   async setFavorite(foodId: string, favorite: boolean): Promise<void> {
