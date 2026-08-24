@@ -5,7 +5,7 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { latestPreviousDayChange, progressRepository, weeklyAverage, weightHistory } from '@/db/repositories/progressRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
 import { workoutRepository } from '@/db/repositories/workoutRepository'
-import { calculateWeightGoalProgress, convertWeight, plannedWeightForDate, type ProgressGoalSettings } from '@/utils/calorieEstimator'
+import { calculateWeightGoalProgress, convertWeight, plannedGoalDate, plannedWeightForDate, type ProgressGoalSettings } from '@/utils/calorieEstimator'
 import { addDays, toDateKey } from '@/utils/dates'
 
 type Range = '1m' | '3m' | '6m' | 'all'
@@ -62,7 +62,8 @@ export function ProgressPage() {
   const rangeStartKey = daysInRange == null ? undefined : toDateKey(addDays(todayDate, -daysInRange))
   const trackingStartKey = normalizedLogs[0]?.date ?? goals.trendStartDate ?? todayKey
   const axisStartKey = rangeStartKey && rangeStartKey > trackingStartKey ? rangeStartKey : trackingStartKey
-  const axisEndKey = todayKey
+  const calculatedGoalDate = plannedGoalDate(goals)
+  const axisEndKey = range === 'all' && calculatedGoalDate && calculatedGoalDate > todayKey ? calculatedGoalDate : todayKey
   const axisDomain: [number, number] = [new Date(`${axisStartKey}T12:00:00`).getTime(), new Date(`${axisEndKey}T12:00:00`).getTime()]
   const axisTickCount = range === '1m' ? 4 : range === '3m' ? 5 : 6
   const axisTicks = Array.from({ length: axisTickCount }, (_, index) => axisDomain[0] + (axisDomain[1] - axisDomain[0]) * index / (axisTickCount - 1))
@@ -83,6 +84,7 @@ export function ProgressPage() {
     const end = new Date(`${axisEndKey}T12:00:00`)
     for (let date = start; date <= end; date = addDays(date, 7)) goalDates.add(toDateKey(date))
     goalDates.add(todayKey)
+    goalDates.add(axisEndKey)
     goalDates.forEach((date) => {
       const planned = plannedWeightForDate(goals, date)
       if (planned == null) return

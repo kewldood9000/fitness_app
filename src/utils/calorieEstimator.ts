@@ -83,6 +83,30 @@ function dayDifference(from: string, to: string): number {
   return (new Date(`${to}T12:00:00`).getTime() - new Date(`${from}T12:00:00`).getTime()) / 86_400_000
 }
 
+function dateKeyAfterDays(dateKey: string, days: number): string {
+  const date = new Date(`${dateKey}T12:00:00`)
+  date.setDate(date.getDate() + days)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+export function plannedGoalDate(goal: ProgressGoalSettings): string | undefined {
+  const startWeight = goal.trendStartWeight ?? goal.startingWeight
+  const { goalWeight, trendStartDate } = goal
+  if (startWeight == null || goalWeight == null || !trendStartDate || goalWeight >= startWeight || goalWeight <= 0) return undefined
+
+  let weeks: number | undefined
+  if (goal.weeklyLossMode === 'percent' && goal.weeklyLossValue != null && goal.weeklyLossValue > 0 && goal.weeklyLossValue < 100) {
+    weeks = Math.log(goalWeight / startWeight) / Math.log(1 - goal.weeklyLossValue / 100)
+  } else if (goal.weeklyLossMode === 'fixed' && goal.weeklyLossValue != null && goal.weeklyLossValue > 0) {
+    weeks = (startWeight - goalWeight) / goal.weeklyLossValue
+  } else if (goal.weeklyChange != null && goal.weeklyChange < 0) {
+    weeks = (startWeight - goalWeight) / Math.abs(goal.weeklyChange)
+  }
+
+  if (weeks == null || !Number.isFinite(weeks) || weeks < 0) return undefined
+  return dateKeyAfterDays(trendStartDate, Math.ceil(weeks * 7))
+}
+
 export function plannedWeightForDate(goal: ProgressGoalSettings, date: string): number | undefined {
   const startWeight = goal.trendStartWeight ?? goal.startingWeight
   const startDate = goal.trendStartDate

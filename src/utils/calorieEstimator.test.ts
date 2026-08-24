@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateWeightGoalProgress, estimateCalories, mifflinStJeor, plannedWeightForDate } from './calorieEstimator'
+import { calculateWeightGoalProgress, estimateCalories, mifflinStJeor, plannedGoalDate, plannedWeightForDate } from './calorieEstimator'
 
 describe('Mifflin–St Jeor calorie estimate', () => {
   it('calculates the published male and female equations', () => {
@@ -22,6 +22,11 @@ describe('planned bodyweight trend', () => {
   it('compounds percentage-based weekly loss', () => {
     const goal = { trendStartDate: '2026-08-01', trendStartWeight: 200, weeklyLossMode: 'percent' as const, weeklyLossValue: 1 }
     expect(plannedWeightForDate(goal, '2026-08-15')).toBe(196)
+  })
+
+  it('calculates the date the planned trend reaches its goal', () => {
+    expect(plannedGoalDate({ trendStartDate: '2026-08-01', trendStartWeight: 200, goalWeight: 180, weeklyLossMode: 'fixed', weeklyLossValue: 2 })).toBe('2026-10-10')
+    expect(plannedGoalDate({ trendStartDate: '2026-08-01', trendStartWeight: 200, goalWeight: 180, weeklyLossMode: 'percent', weeklyLossValue: 1 })).toBe('2026-10-14')
   })
 })
 
