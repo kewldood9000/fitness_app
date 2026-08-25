@@ -1,9 +1,10 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Barcode, Camera, ChevronDown, ChevronLeft, ChevronRight, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { BarcodeScanner } from '@/features/barcode/BarcodeScanner'
-import { nutritionRepository, type FoodDetails, type MacroValues } from '@/db/repositories/nutritionRepository'
+import { GRAMS_PER_OUNCE, nutritionRepository, type FoodAmountUnit, type FoodDetails, type MacroValues } from '@/db/repositories/nutritionRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
 import { usdaAdapter } from '@/services/foodSources/usda/UsdaFoodSourceAdapter'
 import type { FoodSearchResult } from '@/services/foodSources/FoodSourceAdapter'
@@ -14,9 +15,9 @@ const meals: Array<{ key: Meal; title: string }> = [{ key: 'breakfast', title: '
 interface Goals { calories?: number; protein?: number; carbs?: number; fat?: number }
 const emptyMacros = (): MacroValues => ({ ENERGY_KCAL: 0, PROTEIN: 0, CARBOHYDRATE: 0, TOTAL_FAT: 0, FIBER: 0, TOTAL_SUGAR: 0, SODIUM: 0 })
 
-function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+function Sheet({ title, onClose, children, fullHeight = false, keyboardReflow = false }: { title: string; onClose: () => void; children: ReactNode; fullHeight?: boolean; keyboardReflow?: boolean }) {
   const titleId = useId()
-  return <div aria-labelledby={titleId} aria-modal="true" className="modal-backdrop" role="dialog"><div className="modal-panel"><div className="modal-header flex items-center justify-between gap-3 px-5 pb-4 pt-5"><h2 className="text-lg font-semibold tracking-[-0.03em] text-slate-50" id={titleId}>{title}</h2><button aria-label="Close" className="workout-icon-button" onClick={onClose}><X className="size-4" /></button></div><div className="modal-scroll px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">{children}</div></div></div>
+  return createPortal(<div aria-labelledby={titleId} aria-modal="true" className={`modal-backdrop ${fullHeight ? 'persistent-modal-backdrop' : ''} ${keyboardReflow ? 'keyboard-reflow-modal' : ''}`} role="dialog"><div className={`modal-panel ${fullHeight ? 'persistent-modal-panel' : ''}`}><div className="modal-header flex items-center justify-between gap-3 px-5 pb-4 pt-5"><h2 className="text-lg font-semibold tracking-[-0.03em] text-slate-50" id={titleId}>{title}</h2><button aria-label="Close" className="workout-icon-button" onClick={onClose}><X className="size-4" /></button></div><div className="modal-scroll px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">{children}</div></div></div>, document.body)
 }
 
 function ResultRow({ food, onPick }: { food: FoodDetails; onPick: (food: FoodDetails) => void }) {
@@ -27,14 +28,49 @@ function MacroInput({ label, name, defaultValue = 0 }: { label: string; name: st
 
 function FoodLogSheet({ food, date, meal, onEdit, onClose }: { food: FoodDetails; date: string; meal: Meal; onEdit?: (food: FoodDetails) => void; onClose: () => void }) {
   const [selectedMeal, setSelectedMeal] = useState(meal)
-  const [servingId, setServingId] = useState(food.food.defaultServingId ?? food.servings[0]?.id ?? '')
+  const [portion, setPortion] = useState(food.food.defaultServingId ?? food.servings[0]?.id ?? 'g')
   const [quantity, setQuantity] = useState('1')
   const [saving, setSaving] = useState(false)
-  const serving = food.servings.find((item) => item.id === servingId) ?? food.servings[0]
-  const grams = (serving?.grams ?? 100) * (Number(quantity) || 0) / Math.max(serving?.quantity ?? 1, 0.01)
+  const serving = food.servings.find((item) => item.id === portion) ?? food.servings[0]
+  const amountUnit: FoodAmountUnit = portion === 'g' ? 'g' : portion === 'oz' ? 'oz' : 'serving'
+  const amount = Number(quantity) || 0
+  const grams = amountUnit === 'g'
+    ? amount
+    : amountUnit === 'oz'
+      ? amount * GRAMS_PER_OUNCE
+      : (serving?.grams ?? 100) * amount
   const factor = grams / 100
-  async function log() { setSaving(true); try { await nutritionRepository.logFood({ date, meal: selectedMeal, foodId: food.food.id, servingId, quantity: Number(quantity) || 1 }); onClose() } finally { setSaving(false) } }
-  return <Sheet onClose={onClose} title="Log food"><div className="rounded-2xl bg-slate-800/65 p-4"><p className="text-base font-semibold text-slate-100">{food.food.name}</p><p className="mt-1 text-xs text-slate-500">{food.food.brand || (food.food.source === 'USDA' ? 'USDA FoodData Central' : 'Custom food')}</p><div className="mt-4 grid grid-cols-4 gap-2">{[['kcal', food.nutrients.ENERGY_KCAL * factor], ['protein', food.nutrients.PROTEIN * factor], ['carbs', food.nutrients.CARBOHYDRATE * factor], ['fat', food.nutrients.TOTAL_FAT * factor]].map(([label, value]) => <div key={label as string}><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label as string}</p><p className="mt-1 text-sm font-semibold text-slate-200">{Math.round(Number(value) * 10) / 10}</p></div>)}</div></div><div className="mt-4 grid grid-cols-2 gap-3"><label className="field-label">Meal<select className="field-input" onChange={(event) => setSelectedMeal(event.target.value as Meal)} value={selectedMeal}>{meals.map((item) => <option key={item.key} value={item.key}>{item.title}</option>)}</select></label><label className="field-label">Amount<input className="field-input" inputMode="decimal" min="0.01" onChange={(event) => setQuantity(event.target.value)} step="0.1" type="number" value={quantity} /></label></div><label className="field-label mt-3">Serving<select className="field-input" onChange={(event) => setServingId(event.target.value)} value={servingId}>{food.servings.map((item) => <option key={item.id} value={item.id}>{item.quantity !== 1 ? `${item.quantity} ` : ''}{item.name}{item.grams ? ` (${item.grams} g)` : ''}</option>)}</select></label>{onEdit && food.food.source === 'CUSTOM' && <button className="button-quiet mt-3" onClick={() => onEdit(food)}>Edit custom food</button>}<button className="button-primary mt-5 w-full" disabled={saving} onClick={() => void log()}>{saving ? 'Logging…' : 'Log food'}</button></Sheet>
+
+  function selectPortion(nextPortion: string) {
+    const nextServing = food.servings.find((item) => item.id === nextPortion)
+    const nextQuantity = nextPortion === 'g'
+      ? grams
+      : nextPortion === 'oz'
+        ? grams / GRAMS_PER_OUNCE
+        : nextServing?.grams ? grams / nextServing.grams : amount
+    setPortion(nextPortion)
+    setQuantity(String(Math.round(nextQuantity * 100) / 100))
+  }
+
+  async function log() {
+    if (amount <= 0) return
+    setSaving(true)
+    try {
+      await nutritionRepository.logFood({ date, meal: selectedMeal, foodId: food.food.id, servingId: amountUnit === 'serving' ? portion : undefined, quantity: amount, amountUnit })
+      onClose()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return <Sheet onClose={onClose} title="Log food">
+    <div className="rounded-2xl bg-slate-800/65 p-4"><p className="text-base font-semibold text-slate-100">{food.food.name}</p><p className="mt-1 text-xs text-slate-500">{food.food.brand || (food.food.source === 'USDA' ? 'USDA FoodData Central' : 'Custom food')}</p><div className="mt-4 grid grid-cols-4 gap-2">{[['kcal', food.nutrients.ENERGY_KCAL * factor], ['protein', food.nutrients.PROTEIN * factor], ['carbs', food.nutrients.CARBOHYDRATE * factor], ['fat', food.nutrients.TOTAL_FAT * factor]].map(([label, value]) => <div key={label as string}><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label as string}</p><p className="mt-1 text-sm font-semibold text-slate-200">{Math.round(Number(value) * 10) / 10}</p></div>)}</div></div>
+    <label className="field-label mt-4">Meal<select className="field-input" onChange={(event) => setSelectedMeal(event.target.value as Meal)} value={selectedMeal}>{meals.map((item) => <option key={item.key} value={item.key}>{item.title}</option>)}</select></label>
+    <div className="mt-3 grid grid-cols-2 gap-3"><label className="field-label">Amount<input className="field-input" inputMode="decimal" min="0.01" onChange={(event) => setQuantity(event.target.value)} step={amountUnit === 'oz' ? 0.01 : 0.1} type="number" value={quantity} /></label><label className="field-label">Unit<select className="field-input" onChange={(event) => selectPortion(event.target.value)} value={portion}><option value="g">Grams (g)</option><option value="oz">Ounces (oz)</option>{food.servings.map((item) => <option key={item.id} value={item.id}>{item.quantity !== 1 ? `${item.quantity} ` : ''}{item.name}{item.grams ? ` (${item.grams} g)` : ''}</option>)}</select></label></div>
+    <p className="mt-2 text-xs text-slate-500">{Math.round(grams * 10) / 10} g selected · nutrition updates automatically</p>
+    {onEdit && food.food.source === 'CUSTOM' && <button className="button-quiet mt-3" onClick={() => onEdit(food)}>Edit custom food</button>}
+    <button className="button-primary mt-5 w-full" disabled={saving || amount <= 0} onClick={() => void log()}>{saving ? 'Logging…' : 'Log food'}</button>
+  </Sheet>
 }
 
 function CustomFoodSheet({ barcode, existing, onCreated, onDeleted, onClose }: { barcode?: string; existing?: FoodDetails; onCreated: (food: FoodDetails) => void; onDeleted?: () => void; onClose: () => void }) {
@@ -46,8 +82,10 @@ function CustomFoodSheet({ barcode, existing, onCreated, onDeleted, onClose }: {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const name = String(form.get('name') ?? '').trim()
-    const servingGrams = Number(form.get('grams') ?? 0)
-    if (!name || !servingGrams) return setError('Enter a food name and gram weight.')
+    const servingWeight = Number(form.get('servingWeight') ?? 0)
+    const servingWeightUnit = String(form.get('servingWeightUnit') ?? 'g')
+    const servingGrams = servingWeightUnit === 'oz' ? servingWeight * GRAMS_PER_OUNCE : servingWeight
+    if (!name || !servingGrams) return setError('Enter a food name and serving weight.')
     const macros = emptyMacros()
     macros.ENERGY_KCAL = Number(form.get('calories') ?? 0); macros.PROTEIN = Number(form.get('protein') ?? 0); macros.CARBOHYDRATE = Number(form.get('carbs') ?? 0); macros.TOTAL_FAT = Number(form.get('fat') ?? 0); macros.FIBER = Number(form.get('fiber') ?? 0); macros.TOTAL_SUGAR = Number(form.get('sugar') ?? 0); macros.SODIUM = Number(form.get('sodium') ?? 0)
     const input = { name, brand: String(form.get('brand') ?? ''), barcode: String(form.get('barcode') ?? ''), servingName: String(form.get('servingName') ?? 'serving'), servingQuantity: Number(form.get('servingQuantity') ?? 1), servingGrams, macros, ingredients: String(form.get('ingredients') ?? ''), notes: String(form.get('notes') ?? '') }
@@ -62,7 +100,7 @@ function CustomFoodSheet({ barcode, existing, onCreated, onDeleted, onClose }: {
       onDeleted?.()
     }
   }
-  return <Sheet onClose={onClose} title={existing ? 'Edit custom food' : 'Custom food'}><form className="space-y-3" onSubmit={(event) => void submit(event)}><label className="field-label">Food name<input className="field-input" defaultValue={existing?.food.name} name="name" placeholder="e.g. Protein shake" /></label><div className="grid grid-cols-2 gap-3"><label className="field-label">Brand<input className="field-input" defaultValue={existing?.food.brand} name="brand" placeholder="Optional" /></label><label className="field-label">Barcode<input className="field-input" defaultValue={existing?.food.barcode ?? barcode} inputMode="numeric" name="barcode" placeholder="Optional" /></label></div><div className="grid grid-cols-3 gap-3"><label className="field-label">Serving name<input className="field-input" defaultValue={existingServing?.name ?? 'serving'} name="servingName" /></label><label className="field-label">Serving qty<input className="field-input" defaultValue={existingServing?.quantity ?? 1} inputMode="decimal" name="servingQuantity" type="number" /></label><label className="field-label">Gram weight<input className="field-input" defaultValue={grams} inputMode="decimal" name="grams" type="number" /></label></div><div className="grid grid-cols-4 gap-2"><MacroInput defaultValue={macro('ENERGY_KCAL')} label="Kcal" name="calories" /><MacroInput defaultValue={macro('PROTEIN')} label="Protein" name="protein" /><MacroInput defaultValue={macro('CARBOHYDRATE')} label="Carbs" name="carbs" /><MacroInput defaultValue={macro('TOTAL_FAT')} label="Fat" name="fat" /></div><details className="rounded-xl bg-slate-800/60 px-3 py-2"><summary className="cursor-pointer text-sm font-semibold text-slate-300">More nutrients & notes</summary><div className="mt-3 grid grid-cols-3 gap-2"><MacroInput defaultValue={macro('FIBER')} label="Fiber g" name="fiber" /><MacroInput defaultValue={macro('TOTAL_SUGAR')} label="Sugar g" name="sugar" /><MacroInput defaultValue={macro('SODIUM')} label="Sodium mg" name="sodium" /></div><label className="field-label mt-3">Ingredients<textarea className="field-input min-h-18" defaultValue={existing?.food.ingredients} name="ingredients" /></label><label className="field-label mt-3">Notes<textarea className="field-input min-h-18" defaultValue={existing?.food.notes} name="notes" /></label></details>{error && <p className="text-sm text-rose-300">{error}</p>}<button className="button-primary w-full" type="submit">{existing ? 'Save changes' : 'Save custom food'}</button>{existing && <button className="button-danger-outline w-full" type="button" onClick={() => void remove()}>Delete custom food</button>}</form></Sheet>
+  return <Sheet fullHeight keyboardReflow onClose={onClose} title={existing ? 'Edit custom food' : 'Custom food'}><form className="space-y-3" onSubmit={(event) => void submit(event)}><label className="field-label">Food name<input className="field-input" defaultValue={existing?.food.name} name="name" placeholder="e.g. Protein shake" /></label><div className="grid grid-cols-2 gap-3"><label className="field-label">Brand<input className="field-input" defaultValue={existing?.food.brand} name="brand" placeholder="Optional" /></label><label className="field-label">Barcode<input className="field-input" defaultValue={existing?.food.barcode ?? barcode} inputMode="numeric" name="barcode" placeholder="Optional" /></label></div><div className="grid grid-cols-2 gap-3"><label className="field-label">Label serving name<input className="field-input" defaultValue={existingServing?.name ?? 'serving'} name="servingName" placeholder="e.g. 1 cup" /></label><label className="field-label">Label serving qty<input className="field-input" defaultValue={existingServing?.quantity ?? 1} inputMode="decimal" min="0.01" name="servingQuantity" step="0.1" type="number" /></label></div><div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3"><label className="field-label">Serving weight<input className="field-input" defaultValue={grams} inputMode="decimal" min="0.01" name="servingWeight" step="0.1" type="number" /></label><label className="field-label">Unit<select className="field-input" defaultValue="g" name="servingWeightUnit"><option value="g">grams</option><option value="oz">ounces</option></select></label></div><p className="text-xs leading-5 text-slate-500">Enter calories and macros exactly as shown for this label serving. You can log any gram or ounce amount later.</p><div className="grid grid-cols-4 gap-2"><MacroInput defaultValue={macro('ENERGY_KCAL')} label="Kcal" name="calories" /><MacroInput defaultValue={macro('PROTEIN')} label="Protein" name="protein" /><MacroInput defaultValue={macro('CARBOHYDRATE')} label="Carbs" name="carbs" /><MacroInput defaultValue={macro('TOTAL_FAT')} label="Fat" name="fat" /></div><details className="rounded-xl bg-slate-800/60 px-3 py-2"><summary className="cursor-pointer text-sm font-semibold text-slate-300">More nutrients & notes</summary><div className="mt-3 grid grid-cols-3 gap-2"><MacroInput defaultValue={macro('FIBER')} label="Fiber g" name="fiber" /><MacroInput defaultValue={macro('TOTAL_SUGAR')} label="Sugar g" name="sugar" /><MacroInput defaultValue={macro('SODIUM')} label="Sodium mg" name="sodium" /></div><label className="field-label mt-3">Ingredients<textarea className="field-input min-h-18" defaultValue={existing?.food.ingredients} name="ingredients" /></label><label className="field-label mt-3">Notes<textarea className="field-input min-h-18" defaultValue={existing?.food.notes} name="notes" /></label></details>{error && <p className="text-sm text-rose-300">{error}</p>}<button className="button-primary w-full" type="submit">{existing ? 'Save changes' : 'Save custom food'}</button>{existing && <button className="button-danger-outline w-full" type="button" onClick={() => void remove()}>Delete custom food</button>}</form></Sheet>
 }
 
 function FoodSearchSheet({ onClose, onSelect }: { onClose: () => void; onSelect: (food: FoodDetails) => void }) {
@@ -97,7 +135,7 @@ function FoodSearchSheet({ onClose, onSelect }: { onClose: () => void; onSelect:
 
   async function selectUsda(result: FoodSearchResult) { try { const external = await usdaAdapter.getFood(result.sourceFoodId); const id = await nutritionRepository.cacheUsdaFood({ sourceFoodId: external.sourceFoodId, name: external.name, brand: external.brand, brandOwner: external.brandOwner, brandName: external.brandName, barcode: external.barcode, ingredients: external.ingredients, publicationDate: external.publicationDate, servingName: external.servingName, servingGrams: external.servingGrams, nutrients: external.macroValues }); const details = await nutritionRepository.getFoodDetails(id); if (details) onSelect(details) } catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to save that USDA food.') } }
   async function onBarcode(value: string) { setScanning(false); const localFood = await nutritionRepository.findByBarcode(value); if (localFood) return onSelect(localFood); try { const external = await usdaAdapter.lookupBarcode(value); if (!external) return setCustomBarcode(value); const id = await nutritionRepository.cacheUsdaFood({ sourceFoodId: external.sourceFoodId, name: external.name, brand: external.brand, brandOwner: external.brandOwner, brandName: external.brandName, barcode: external.barcode ?? value, ingredients: external.ingredients, publicationDate: external.publicationDate, servingName: external.servingName, servingGrams: external.servingGrams, nutrients: external.macroValues }); const details = await nutritionRepository.getFoodDetails(id); if (details) onSelect(details) } catch (error) { setMessage(error instanceof Error ? error.message : 'Barcode lookup failed.'); setCustomBarcode(value) } }
-  return <Sheet onClose={onClose} title="Add food">
+  return <Sheet fullHeight onClose={onClose} title="Add food">
     <div className="food-search-row"><div className="food-search-field"><Search aria-hidden="true" /><input aria-label={placeholder} className="field-input" onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} type="search" value={query} /></div><button aria-label="Scan barcode" className="food-barcode-button" onClick={() => setScanning(true)}><Barcode aria-hidden="true" /></button></div>
     <div aria-label="Food list" className="food-search-tabs" role="tablist">{(['all', 'favorites', 'custom'] as const).map((item) => <button aria-selected={tab === item} className={`food-search-tab ${tab === item ? 'food-search-tab-active' : ''}`} key={item} onClick={() => setTab(item)} role="tab" type="button">{item === 'all' ? 'All' : item === 'favorites' ? 'Favorites' : 'Custom'}</button>)}</div>
     <button className="button-quiet mt-2" onClick={() => setCustomBarcode('')}><Plus className="size-4" />Create custom food</button>

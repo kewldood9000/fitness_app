@@ -18,9 +18,11 @@ function useKeyboardViewport() {
   useEffect(() => {
     const root = document.documentElement
     const visualViewport = window.visualViewport
-    const isAppleTouchDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
     let largestViewportHeight = Math.max(window.innerHeight, visualViewport?.height ?? 0)
     let revealTimer: number | undefined
+    let restoreTimer: number | undefined
+    let keyboardWasOpen = false
+    const savedScrollPositions = new Map<HTMLElement, number>()
 
     function revealFocusedField() {
       const focused = document.activeElement
@@ -33,8 +35,12 @@ function useKeyboardViewport() {
       const fieldBounds = focused.getBoundingClientRect()
       const scrollBounds = scroller.getBoundingClientRect()
       const breathingRoom = 20
-      if (fieldBounds.bottom > scrollBounds.bottom - breathingRoom) scroller.scrollBy({ behavior: 'smooth', top: fieldBounds.bottom - scrollBounds.bottom + breathingRoom })
-      else if (fieldBounds.top < scrollBounds.top + breathingRoom) scroller.scrollBy({ behavior: 'smooth', top: fieldBounds.top - scrollBounds.top - breathingRoom })
+      const visibleTop = visualViewport?.offsetTop ?? 0
+      const visibleBottom = visibleTop + (visualViewport?.height ?? window.innerHeight)
+      const usableTop = Math.max(scrollBounds.top, visibleTop) + breathingRoom
+      const usableBottom = Math.min(scrollBounds.bottom, visibleBottom) - breathingRoom
+      if (fieldBounds.bottom > usableBottom) scroller.scrollBy({ behavior: 'smooth', top: fieldBounds.bottom - usableBottom })
+      else if (fieldBounds.top < usableTop) scroller.scrollBy({ behavior: 'smooth', top: fieldBounds.top - usableTop })
     }
 
     function scheduleReveal() {
@@ -48,9 +54,19 @@ function useKeyboardViewport() {
       largestViewportHeight = Math.max(largestViewportHeight, viewportHeight)
       const keyboardThreshold = Math.max(120, largestViewportHeight * 0.18)
       const keyboardOpen = largestViewportHeight - viewportHeight > keyboardThreshold
+      if (keyboardOpen && !keyboardWasOpen) {
+        document.querySelectorAll<HTMLElement>('.keyboard-reflow-modal .modal-scroll').forEach((scroller) => savedScrollPositions.set(scroller, scroller.scrollTop))
+      } else if (!keyboardOpen && keyboardWasOpen) {
+        window.clearTimeout(restoreTimer)
+        restoreTimer = window.setTimeout(() => {
+          savedScrollPositions.forEach((scrollTop, scroller) => scroller.scrollTo({ behavior: 'smooth', top: scrollTop }))
+          savedScrollPositions.clear()
+        }, 80)
+      }
+      keyboardWasOpen = keyboardOpen
       root.style.setProperty('--visual-viewport-height', `${Math.round(viewportHeight)}px`)
       root.style.setProperty('--visual-viewport-top', `${Math.round(viewportTop)}px`)
-      root.style.setProperty('--keyboard-accessory-inset', keyboardOpen && isAppleTouchDevice ? '3.25rem' : '0px')
+      root.style.setProperty('--stable-viewport-height', `${Math.round(largestViewportHeight)}px`)
       root.classList.toggle('keyboard-open', keyboardOpen)
       if (keyboardOpen) scheduleReveal()
     }
@@ -74,10 +90,12 @@ function useKeyboardViewport() {
       window.removeEventListener('orientationchange', resetViewportBaseline)
       document.removeEventListener('focusin', scheduleReveal)
       window.clearTimeout(revealTimer)
+      window.clearTimeout(restoreTimer)
+      savedScrollPositions.clear()
       root.classList.remove('keyboard-open')
       root.style.removeProperty('--visual-viewport-height')
       root.style.removeProperty('--visual-viewport-top')
-      root.style.removeProperty('--keyboard-accessory-inset')
+      root.style.removeProperty('--stable-viewport-height')
     }
   }, [])
 }

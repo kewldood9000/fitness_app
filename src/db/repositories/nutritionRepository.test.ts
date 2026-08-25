@@ -8,7 +8,7 @@ const macros: MacroValues = { ENERGY_KCAL: 100, PROTEIN: 10, CARBOHYDRATE: 10, T
 
 beforeEach(async () => {
   await db.open()
-  await Promise.all([db.foods.clear(), db.servings.clear(), db.foodNutrients.clear(), db.favorites.clear(), db.recentFoods.clear()])
+  await Promise.all([db.foods.clear(), db.servings.clear(), db.foodNutrients.clear(), db.favorites.clear(), db.recentFoods.clear(), db.foodLogs.clear(), db.barcodeMappings.clear()])
 })
 
 function entry(values: Pick<FoodLogEntry, 'calories' | 'protein' | 'carbs' | 'fat'>): FoodLogEntry {
@@ -35,5 +35,28 @@ describe('food picker lists', () => {
 
     expect((await nutritionRepository.getFavorites()).map((item) => item.food.name)).toEqual(['apple', 'Ziti'])
     expect((await nutritionRepository.getCustomFoods()).map((item) => item.food.name)).toEqual(['apple', 'Ziti'])
+  })
+})
+
+describe('food amount units', () => {
+  it('logs arbitrary gram and ounce amounts from the same nutrition data', async () => {
+    const foodId = await nutritionRepository.createCustomFood({ name: 'Potato', servingName: 'serving', servingQuantity: 1, servingGrams: 100, macros })
+
+    await nutritionRepository.logFood({ date: '2026-08-24', meal: 'dinner', foodId, quantity: 80, amountUnit: 'g' })
+    await nutritionRepository.logFood({ date: '2026-08-24', meal: 'dinner', foodId, quantity: 1, amountUnit: 'oz' })
+
+    const entries = await db.foodLogs.toArray()
+    expect(entries.find((item) => item.servingUnit === 'g')).toMatchObject({ servingQuantity: 80, grams: 80, calories: 80, protein: 8 })
+    expect(entries.find((item) => item.servingUnit === 'oz')).toMatchObject({ servingQuantity: 1, calories: 28, protein: 2.8 })
+    expect(entries.find((item) => item.servingUnit === 'oz')?.grams).toBeCloseTo(28.3495, 4)
+  })
+
+  it('treats the entered custom-food label serving as one complete serving', async () => {
+    const foodId = await nutritionRepository.createCustomFood({ name: 'Two bars', servingName: 'bar', servingQuantity: 2, servingGrams: 80, macros })
+    const servingId = (await nutritionRepository.getFoodDetails(foodId))?.food.defaultServingId
+
+    await nutritionRepository.logFood({ date: '2026-08-24', meal: 'snacks', foodId, servingId, quantity: 1, amountUnit: 'serving' })
+
+    expect((await db.foodLogs.toArray())[0]).toMatchObject({ servingQuantity: 2, servingUnit: 'bar', grams: 80, calories: 100, protein: 10 })
   })
 })

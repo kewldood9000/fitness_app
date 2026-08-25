@@ -379,12 +379,19 @@ button { cursor: pointer; }
 .modal-header { flex: 0 0 auto; }
 .modal-scroll { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scroll-padding-block: 1rem 5rem; -webkit-overflow-scrolling: touch; }
 .keyboard-open body { overflow: hidden; }
-.keyboard-open .modal-backdrop { height: calc(var(--visual-viewport-height, 100dvh) - var(--keyboard-accessory-inset, 0px)); align-items: flex-start; padding-top: 0.25rem; }
-.keyboard-open .modal-panel { height: calc(var(--visual-viewport-height, 100dvh) - var(--keyboard-accessory-inset, 0px) - 0.5rem); max-height: calc(var(--visual-viewport-height, 100dvh) - var(--keyboard-accessory-inset, 0px) - 0.5rem); }
+.keyboard-open .modal-backdrop { height: var(--visual-viewport-height, 100dvh); align-items: stretch; padding-top: max(0.5rem, env(safe-area-inset-top)); }
+.keyboard-open .modal-panel { height: 100%; max-height: 100%; }
 .keyboard-open .modal-scroll { scroll-padding-bottom: 7rem; }
 .keyboard-open .modal-scroll::after { display: block; height: max(4rem, env(safe-area-inset-bottom)); content: ""; }
 .keyboard-open .bottom-nav { display: none; }
-.keyboard-open .app-main { padding-bottom: calc(2rem + var(--keyboard-accessory-inset, 0px) + env(safe-area-inset-bottom)); }
+.keyboard-open .app-main { padding-bottom: calc(2rem + env(safe-area-inset-bottom)); }
+.modal-backdrop.persistent-modal-backdrop { top: 0; height: var(--stable-viewport-height, 100dvh); align-items: stretch; padding: 0; }
+.modal-panel.persistent-modal-panel { width: min(100%, 34rem); height: var(--stable-viewport-height, 100dvh); max-height: var(--stable-viewport-height, 100dvh); border: 0; border-radius: 0; }
+.persistent-modal-panel .modal-header { padding-top: max(1.25rem, env(safe-area-inset-top)); }
+.persistent-modal-panel .modal-scroll { padding-bottom: max(1.25rem, env(safe-area-inset-bottom)); }
+.keyboard-reflow-modal .persistent-modal-panel::before { display: none; }
+.keyboard-open .modal-backdrop.persistent-modal-backdrop { top: 0; height: var(--stable-viewport-height, 100dvh); align-items: stretch; padding: 0; }
+.keyboard-open .modal-panel.persistent-modal-panel { height: var(--stable-viewport-height, 100dvh); max-height: var(--stable-viewport-height, 100dvh); }
 .picker-row { display: flex; width: 100%; min-height: 3.9rem; align-items: center; gap: 0.75rem; border: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding: 0.65rem 0.8rem; color: inherit; background: rgba(24, 24, 27, 0.7); }
 .picker-row:last-child { border-bottom: 0; }
 .picker-row:hover { background: rgba(82, 167, 255, 0.09); }
@@ -577,6 +584,10 @@ button { cursor: pointer; }
   .nutrition-meal-totals { gap: 0.25rem; }
   .nutrition-meal-totals span { padding: 0.3rem 0.48rem; font-size: 0.63rem; }
   .nutrition-meal-add { width: 2.35rem; }
+}
+
+@media (pointer: coarse) and (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea, select, [contenteditable="true"] { font-size: 16px !important; }
 }
 
 @media (min-width: 540px) {

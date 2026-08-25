@@ -47,6 +47,10 @@ export interface DayNutrition {
   totals: MacroValues
 }
 
+export type FoodAmountUnit = 'serving' | 'g' | 'oz'
+
+export const GRAMS_PER_OUNCE = 28.349523125
+
 function normalized(name: string) {
   return name.trim().toLocaleLowerCase()
 }
@@ -234,18 +238,25 @@ export const nutritionRepository = {
     return mapping ? nutritionRepository.getFoodDetails(mapping.foodId) : undefined
   },
 
-  async logFood(input: { date: string; meal: Meal; foodId: string; servingId?: string; quantity: number }): Promise<void> {
+  async logFood(input: { date: string; meal: Meal; foodId: string; servingId?: string; quantity: number; amountUnit?: FoodAmountUnit }): Promise<void> {
     const details = await nutritionRepository.getFoodDetails(input.foodId)
     if (!details) throw new Error('This food is no longer available.')
     const serving = details.servings.find((item) => item.id === input.servingId) ?? details.servings.find((item) => item.id === details.food.defaultServingId) ?? details.servings[0]
     const quantity = Math.max(0.01, input.quantity)
-    const grams = serving?.grams ? (serving.grams / Math.max(0.01, serving.quantity)) * quantity : 100 * quantity
+    const amountUnit = input.amountUnit ?? 'serving'
+    const grams = amountUnit === 'g'
+      ? quantity
+      : amountUnit === 'oz'
+        ? quantity * GRAMS_PER_OUNCE
+        : serving?.grams ? serving.grams * quantity : 100 * quantity
+    const displayQuantity = amountUnit === 'serving' ? quantity * Math.max(serving?.quantity ?? 1, 0.01) : quantity
+    const servingUnit = amountUnit === 'g' ? 'g' : amountUnit === 'oz' ? 'oz' : serving?.name ?? '100 g'
     const factor = grams / 100
     const timestamp = now()
     const entry: FoodLogEntry = {
       id: newId(), date: input.date, meal: input.meal, foodId: details.food.id,
       foodSnapshot: { name: details.food.name, brand: details.food.brand, source: details.food.source, servingName: serving?.name ?? '100 g' },
-      servingQuantity: quantity, servingUnit: serving?.name ?? '100 g', grams,
+      servingQuantity: displayQuantity, servingUnit, grams,
       calories: Math.round(details.nutrients.ENERGY_KCAL * factor), protein: Math.round(details.nutrients.PROTEIN * factor * 10) / 10,
       carbs: Math.round(details.nutrients.CARBOHYDRATE * factor * 10) / 10, fat: Math.round(details.nutrients.TOTAL_FAT * factor * 10) / 10,
       createdAt: timestamp, updatedAt: timestamp
