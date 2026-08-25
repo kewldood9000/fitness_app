@@ -54,6 +54,7 @@ function useKeyboardViewport() {
       largestViewportHeight = Math.max(largestViewportHeight, viewportHeight)
       const keyboardThreshold = Math.max(120, largestViewportHeight * 0.18)
       const keyboardOpen = largestViewportHeight - viewportHeight > keyboardThreshold
+      const keyboardOccludedHeight = keyboardOpen ? Math.max(0, largestViewportHeight - viewportHeight - viewportTop) : 0
       if (keyboardOpen && !keyboardWasOpen) {
         document.querySelectorAll<HTMLElement>('.keyboard-reflow-modal .modal-scroll').forEach((scroller) => savedScrollPositions.set(scroller, scroller.scrollTop))
       } else if (!keyboardOpen && keyboardWasOpen) {
@@ -67,6 +68,7 @@ function useKeyboardViewport() {
       root.style.setProperty('--visual-viewport-height', `${Math.round(viewportHeight)}px`)
       root.style.setProperty('--visual-viewport-top', `${Math.round(viewportTop)}px`)
       root.style.setProperty('--stable-viewport-height', `${Math.round(largestViewportHeight)}px`)
+      root.style.setProperty('--keyboard-occluded-height', `${Math.round(keyboardOccludedHeight)}px`)
       root.classList.toggle('keyboard-open', keyboardOpen)
       if (keyboardOpen) scheduleReveal()
     }
@@ -96,6 +98,7 @@ function useKeyboardViewport() {
       root.style.removeProperty('--visual-viewport-height')
       root.style.removeProperty('--visual-viewport-top')
       root.style.removeProperty('--stable-viewport-height')
+      root.style.removeProperty('--keyboard-occluded-height')
     }
   }, [])
 }
