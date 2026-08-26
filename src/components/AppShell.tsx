@@ -1,5 +1,5 @@
 import { ChartLine, Dumbbell, House, Settings, Utensils } from 'lucide-react'
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { AppLogo } from './AppLogo'
 
@@ -106,8 +106,11 @@ function useKeyboardViewport() {
 export function AppShell({ children }: AppShellProps) {
   useKeyboardViewport()
   const location = useLocation()
+  const [pendingPath, setPendingPath] = useState<string>()
   const isSettings = location.pathname === '/settings'
   const isNutrition = location.pathname === '/nutrition'
+
+  useEffect(() => setPendingPath(undefined), [location.key])
 
   return (
     <div className="app-canvas">
@@ -131,7 +134,11 @@ export function AppShell({ children }: AppShellProps) {
               key={to}
               end={end}
               to={to}
-              className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
+              className={({ isActive }) => `nav-item ${isActive || pendingPath === to ? 'nav-item-active' : ''}`}
+              onClick={() => window.setTimeout(() => setPendingPath(undefined), 400)}
+              onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setPendingPath(to) }}
+              onPointerCancel={() => setPendingPath(undefined)}
+              onPointerDown={() => setPendingPath(to)}
             >
               <Icon className="size-5" strokeWidth={2.1} />
               <span>{label}</span>

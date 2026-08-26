@@ -2,9 +2,11 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { ArrowDown, ArrowUp, BarChart3, ChevronDown, Minus, Plus, Scale, Trash2, X } from 'lucide-react'
 import { useId, useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { LoadMoreButton } from '@/components/LoadMoreButton'
 import { latestPreviousDayChange, progressRepository, weeklyAverage, weightHistory } from '@/db/repositories/progressRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
 import { workoutRepository } from '@/db/repositories/workoutRepository'
+import { useIncrementalItems } from '@/hooks/useIncrementalItems'
 import { calculateWeightGoalProgress, convertWeight, plannedGoalDate, plannedWeightForDate, type ProgressGoalSettings } from '@/utils/calorieEstimator'
 import { addDays, toDateKey } from '@/utils/dates'
 
@@ -119,6 +121,7 @@ export function ProgressPage() {
   const latestPrs = latestStrength ? [latestStrength.isWeightPr && 'Weight PR', latestStrength.isRepPr && 'Rep PR', latestStrength.isVolumePr && 'Volume PR', latestStrength.isEstimated1RMPr && '1RM PR'].filter(Boolean) : []
   const goalProgress = currentDisplay ? calculateWeightGoalProgress(goals, currentDisplay.weight, unit) : undefined
   const historyRows = useMemo(() => weightHistory(normalizedLogs), [normalizedLogs])
+  const pagedHistory = useIncrementalItems(historyRows, 30)
   const historyDate = (date: string) => new Intl.DateTimeFormat('en-US', { month: 'numeric', day: 'numeric' }).format(new Date(`${date}T12:00:00`))
   const historyNumber = (value: number | undefined, digits: number) => value == null ? '' : value.toFixed(digits)
 
@@ -140,9 +143,10 @@ export function ProgressPage() {
         {showWeightHistory && (historyRows.length === 0 ? <p className="mt-2 rounded-xl bg-zinc-900/70 px-4 py-5 text-center text-sm text-zinc-500">No weigh-ins logged yet.</p> : <div className="mt-2 overflow-x-auto rounded-xl border border-white/[0.07]">
           <table className="min-w-[43rem] w-full border-collapse text-right text-xs">
             <thead className="bg-slate-950/80 text-[10px] font-bold uppercase tracking-[0.06em] text-slate-500"><tr><th className="px-3 py-3 text-left">Date</th><th className="px-2 py-3">Weight</th><th className="px-2 py-3">Daily Loss</th><th className="px-2 py-3">Daily Net</th><th className="px-2 py-3">Week Avg</th><th className="px-3 py-3">Avg. Net</th></tr></thead>
-            <tbody>{historyRows.map((entry) => <tr className="border-t border-white/[0.06] text-slate-300" key={entry.id}><td className="whitespace-nowrap px-3 py-2.5 text-left font-semibold"><span className="inline-flex items-center gap-1.5">{historyDate(entry.date)}<button aria-label={`Delete ${number(entry.weight)} ${unit} weigh-in from ${entry.date}`} className="rounded-md p-1 text-slate-600 transition hover:bg-rose-400/10 hover:text-rose-300" onClick={() => { if (window.confirm(`Delete the ${number(entry.weight)} ${unit} weigh-in from ${entry.date}?`)) void progressRepository.deleteWeightLog(entry.id) }}><Trash2 className="size-3" /></button></span></td><td className="whitespace-nowrap px-2 py-2.5 font-semibold">{historyNumber(entry.weight, 1)}</td><td className="px-2 py-2.5">{historyNumber(entry.dailyLoss, 1)}</td><td className="px-2 py-2.5 text-sky-300">{historyNumber(entry.dailyNet, 1)}</td><td className="px-2 py-2.5 text-sky-300">{historyNumber(entry.weekAverage, 2)}</td><td className="px-3 py-2.5 text-sky-300">{historyNumber(entry.averageNet, 2)}</td></tr>)}</tbody>
+            <tbody>{pagedHistory.visibleItems.map((entry) => <tr className="border-t border-white/[0.06] text-slate-300" key={entry.id}><td className="whitespace-nowrap px-3 py-2.5 text-left font-semibold"><span className="inline-flex items-center gap-1.5">{historyDate(entry.date)}<button aria-label={`Delete ${number(entry.weight)} ${unit} weigh-in from ${entry.date}`} className="rounded-md p-1 text-slate-600 transition hover:bg-rose-400/10 hover:text-rose-300" onClick={() => { if (window.confirm(`Delete the ${number(entry.weight)} ${unit} weigh-in from ${entry.date}?`)) void progressRepository.deleteWeightLog(entry.id) }}><Trash2 className="size-3" /></button></span></td><td className="whitespace-nowrap px-2 py-2.5 font-semibold">{historyNumber(entry.weight, 1)}</td><td className="px-2 py-2.5">{historyNumber(entry.dailyLoss, 1)}</td><td className="px-2 py-2.5 text-sky-300">{historyNumber(entry.dailyNet, 1)}</td><td className="px-2 py-2.5 text-sky-300">{historyNumber(entry.weekAverage, 2)}</td><td className="px-3 py-2.5 text-sky-300">{historyNumber(entry.averageNet, 2)}</td></tr>)}</tbody>
           </table>
         </div>)}
+        {showWeightHistory && <LoadMoreButton onClick={pagedHistory.showMore} shown={pagedHistory.shown} total={pagedHistory.total} />}
         {showWeightHistory && historyRows.length > 0 && <p className="mt-2 px-1 text-[10px] leading-4 text-slate-600">Daily Loss compares consecutive weigh-ins. Weekly figures use Monday–Sunday periods and appear on each week’s first entry.</p>}
       </div>
     </section>

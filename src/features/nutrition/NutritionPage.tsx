@@ -4,6 +4,7 @@ import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'reac
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { BarcodeScanner } from '@/features/barcode/BarcodeScanner'
+import { LoadMoreButton } from '@/components/LoadMoreButton'
 import { GRAMS_PER_OUNCE, nutritionRepository, type FoodAmountUnit, type FoodDetails, type MacroValues } from '@/db/repositories/nutritionRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
 import { lookupBarcodeAcrossSources } from '@/services/foodSources/barcodeLookupService'
@@ -12,6 +13,7 @@ import { usdaAdapter } from '@/services/foodSources/usda/UsdaFoodSourceAdapter'
 import type { FoodSearchResult } from '@/services/foodSources/FoodSourceAdapter'
 import type { Meal } from '@/types/models'
 import { addDays, formatLongDate, toDateKey } from '@/utils/dates'
+import { useIncrementalItems } from '@/hooks/useIncrementalItems'
 
 const meals: Array<{ key: Meal; title: string }> = [{ key: 'breakfast', title: 'Breakfast' }, { key: 'lunch', title: 'Lunch' }, { key: 'dinner', title: 'Dinner' }, { key: 'snacks', title: 'Snacks' }]
 interface Goals { calories?: number; protein?: number; carbs?: number; fat?: number }
@@ -176,6 +178,11 @@ function FoodSearchSheet({ onClose, onSelect }: { onClose: () => void; onSelect:
     : tab === 'custom'
       ? (customFoods ?? []).filter(matchesQuery)
       : cleanQuery ? (localMatches ?? []) : (recents ?? [])
+  const resultRows: Array<{ type: 'local'; food: FoodDetails } | { type: 'usda'; result: FoodSearchResult }> = [
+    ...scopedFoods.map((food) => ({ type: 'local' as const, food })),
+    ...(tab === 'all' && cleanQuery.length >= 3 ? usdaResults.map((result) => ({ type: 'usda' as const, result })) : [])
+  ]
+  const pagedResults = useIncrementalItems(resultRows, 25, `${tab}:${cleanQuery}`)
   const placeholder = tab === 'all' ? 'Search all foods' : tab === 'favorites' ? 'Search favorites' : 'Search custom foods'
 
   useEffect(() => {
@@ -228,10 +235,12 @@ function FoodSearchSheet({ onClose, onSelect }: { onClose: () => void; onSelect:
     <button className="button-quiet mt-2" onClick={() => setCustomBarcode('')}><Plus className="size-4" />Create custom food</button>
     {message && <p className="mt-3 rounded-xl bg-amber-300/10 px-3 py-2.5 text-sm leading-5 text-amber-100">{message}</p>}
     <div className="food-tab-results mt-3" role="tabpanel">
-      {scopedFoods.map((food) => <ResultRow food={food} key={food.food.id} onPick={onSelect} />)}
-      {tab === 'all' && cleanQuery.length >= 3 && usdaResults.map((result) => <button className="food-result w-full text-left" key={result.sourceFoodId} onClick={() => void selectUsda(result)}><span className="min-w-0 flex-1"><strong>{result.name}</strong><small>{result.brand ? `${result.brand} · ` : ''}USDA</small></span><ChevronRight className="size-4 text-slate-500" /></button>)}
-      {scopedFoods.length === 0 && !(tab === 'all' && usdaResults.length) && <p className="result-empty">{cleanQuery ? `No ${tab === 'all' ? 'food' : tab} matches yet.` : tab === 'all' ? 'Foods you log will appear here in recent-history order.' : tab === 'favorites' ? 'Favorite a food for fast access.' : 'Create a custom food to see it here.'}</p>}
+      {pagedResults.visibleItems.map((item) => item.type === 'local'
+        ? <ResultRow food={item.food} key={`local:${item.food.food.id}`} onPick={onSelect} />
+        : <button className="food-result w-full text-left" key={`usda:${item.result.sourceFoodId}`} onClick={() => void selectUsda(item.result)}><span className="min-w-0 flex-1"><strong>{item.result.name}</strong><small>{item.result.brand ? `${item.result.brand} · ` : ''}USDA</small></span><ChevronRight className="size-4 text-slate-500" /></button>)}
+      {resultRows.length === 0 && <p className="result-empty">{cleanQuery ? `No ${tab === 'all' ? 'food' : tab} matches yet.` : tab === 'all' ? 'Foods you log will appear here in recent-history order.' : tab === 'favorites' ? 'Favorite a food for fast access.' : 'Create a custom food to see it here.'}</p>}
     </div>
+    <LoadMoreButton onClick={pagedResults.showMore} shown={pagedResults.shown} total={pagedResults.total} />
     {scanning && <BarcodeScanner onClose={() => setScanning(false)} onDetected={(value) => void onBarcode(value)} />}
     {customBarcode !== undefined && <CustomFoodSheet barcode={customBarcode} onClose={() => setCustomBarcode(undefined)} onCreated={(food) => { setCustomBarcode(undefined); onSelect(food) }} />}
     {barcodeMatches.length > 1 && <BarcodeSourceSheet barcode={matchedBarcode} matches={barcodeMatches} onChoose={(food) => void chooseBarcodeFood(food)} onClose={() => setBarcodeMatches([])} onManual={() => { setBarcodeMatches([]); setCustomBarcode(matchedBarcode) }} />}

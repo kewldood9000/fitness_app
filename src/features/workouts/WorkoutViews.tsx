@@ -21,8 +21,10 @@ import {
 } from 'lucide-react'
 import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { LoadMoreButton } from '@/components/LoadMoreButton'
 import { workoutRepository, type PreviousPerformance, type SessionExerciseDetails } from '@/db/repositories/workoutRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
+import { useIncrementalItems } from '@/hooks/useIncrementalItems'
 import type { Exercise, PlannedWorkoutSet, WorkoutSet, WorkoutTemplateExercise } from '@/types/models'
 import { formatLongDate } from '@/utils/dates'
 
@@ -104,6 +106,7 @@ function ExercisePicker({ onPick, onClose }: { onPick: (exerciseId: string) => P
       return matchesMuscle && (!term || searchable.includes(term))
     })
   }, [exercises, query, selectedMuscle])
+  const pagedExercises = useIncrementalItems(filtered, 40, `${selectedMuscle}:${query.trim().toLocaleLowerCase()}`)
 
   async function pick(exerciseId: string) {
     setSaving(true)
@@ -125,13 +128,13 @@ function ExercisePicker({ onPick, onClose }: { onPick: (exerciseId: string) => P
       {filtered.length === 0 ? (
         <p className="rounded-xl bg-slate-800/70 px-4 py-5 text-center text-sm text-slate-400">No matching exercises. Add one in your library first.</p>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-white/[0.07]">
-          {filtered.map((exercise) => (
+        <><div className="overflow-hidden rounded-2xl border border-white/[0.07]">
+          {pagedExercises.visibleItems.map((exercise) => (
             <button className="picker-row" disabled={saving} key={exercise.id} onClick={() => void pick(exercise.id)} type="button">
               <span className="min-w-0 flex-1 text-left"><strong>{exercise.name}</strong><small>{exercise.primaryMuscle} · {exercise.equipment}</small></span><Plus className="size-4 text-sky-300" />
             </button>
           ))}
-        </div>
+        </div><LoadMoreButton onClick={pagedExercises.showMore} shown={pagedExercises.shown} total={pagedExercises.total} /></>
       )}
     </Modal>
   )
@@ -237,6 +240,8 @@ export function ExerciseLibraryPage() {
   const exercises = useLiveQuery(() => workoutRepository.getExercises(), [])
   const [editing, setEditing] = useState<Exercise | 'new' | undefined>()
   const [message, setMessage] = useState('')
+  const exerciseItems = exercises ?? []
+  const pagedExercises = useIncrementalItems(exerciseItems, 50)
 
   async function remove(exercise: Exercise) {
     if (!window.confirm(`Delete ${exercise.name}? Exercises used by a workout or history are protected.`)) return
@@ -249,7 +254,7 @@ export function ExerciseLibraryPage() {
 
   return <div className="space-y-5 pb-3 pt-2"><BackLink to="/workout">Workout</BackLink><PageHeader action={<button aria-label="Add exercise" className="round-add-button" onClick={() => setEditing('new')}><Plus className="size-5" /></button>} eyebrow="Library" title="Exercises" detail="Choose from the built-in catalog or add your own exercises." />
     {message && <p className="rounded-xl border border-rose-300/15 bg-rose-300/10 px-3 py-2 text-sm text-rose-200">{message}</p>}
-    {(exercises?.length ?? 0) === 0 ? <div className="empty-card"><Dumbbell className="size-6 text-sky-300" /><h2>No exercises yet</h2><p>Add your first custom exercise, then build a workout around it.</p><button className="button-primary mt-5" onClick={() => setEditing('new')}><Plus className="size-4" />Add exercise</button></div> : <div className="space-y-2">{exercises?.map((exercise) => <div className="exercise-row" key={exercise.id}><button className="min-w-0 flex-1 text-left" onClick={() => setEditing(exercise)}><strong>{exercise.name}</strong><small>{exercise.primaryMuscle} · {exercise.equipment} · {exercise.isCustom ? 'Custom' : 'Built-in'}</small></button>{exercise.isCustom && <IconButton label={`Delete ${exercise.name}`} onClick={() => void remove(exercise)} tone="danger"><Trash2 className="size-4" /></IconButton>}</div>)}</div>}
+    {exerciseItems.length === 0 ? <div className="empty-card"><Dumbbell className="size-6 text-sky-300" /><h2>No exercises yet</h2><p>Add your first custom exercise, then build a workout around it.</p><button className="button-primary mt-5" onClick={() => setEditing('new')}><Plus className="size-4" />Add exercise</button></div> : <><div className="space-y-2">{pagedExercises.visibleItems.map((exercise) => <div className="exercise-row" key={exercise.id}><button className="min-w-0 flex-1 text-left" onClick={() => setEditing(exercise)}><strong>{exercise.name}</strong><small>{exercise.primaryMuscle} · {exercise.equipment} · {exercise.isCustom ? 'Custom' : 'Built-in'}</small></button>{exercise.isCustom && <IconButton label={`Delete ${exercise.name}`} onClick={() => void remove(exercise)} tone="danger"><Trash2 className="size-4" /></IconButton>}</div>)}</div><LoadMoreButton onClick={pagedExercises.showMore} shown={pagedExercises.shown} total={pagedExercises.total} /></>}
     {editing && <Modal onClose={() => setEditing(undefined)} title={editing === 'new' ? 'New exercise' : 'Edit exercise'}><ExerciseForm exercise={editing === 'new' ? undefined : editing} onCancel={() => setEditing(undefined)} onSaved={() => setEditing(undefined)} /></Modal>}
   </div>
 }
@@ -259,6 +264,8 @@ export function TemplateListPage() {
   const navigate = useNavigate()
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
+  const templateItems = templates ?? []
+  const pagedTemplates = useIncrementalItems(templateItems, 25)
 
   async function create() {
     const trimmed = name.trim()
@@ -268,7 +275,7 @@ export function TemplateListPage() {
   }
 
   return <div className="space-y-5 pb-3 pt-2"><BackLink to="/workout">Workout</BackLink><PageHeader action={<button aria-label="Create workout" className="round-add-button" onClick={() => setCreating(true)}><Plus className="size-5" /></button>} eyebrow="Programming" title="Workouts" detail="Changes here never modify completed workout history." />
-    {(templates?.length ?? 0) === 0 ? <div className="empty-card"><ListPlus className="size-6 text-sky-300" /><h2>Plan your first workout</h2><p>Build an ordered exercise list, then assign the workout to your week.</p><button className="button-primary mt-5" onClick={() => setCreating(true)}><Plus className="size-4" />Create workout</button></div> : <div className="space-y-2">{templates?.map((template) => <Link className="template-row" key={template.id} to={`/workout/templates/${template.id}`}><span className="grid size-10 place-items-center rounded-xl bg-sky-400/10 text-sky-300"><Dumbbell className="size-[18px]" /></span><span className="min-w-0 flex-1"><strong>{template.name}</strong><small>{template.notes || 'Tap to add exercises and targets'}</small></span><ChevronRight className="size-4 text-slate-600" /></Link>)}</div>}
+    {templateItems.length === 0 ? <div className="empty-card"><ListPlus className="size-6 text-sky-300" /><h2>Plan your first workout</h2><p>Build an ordered exercise list, then assign the workout to your week.</p><button className="button-primary mt-5" onClick={() => setCreating(true)}><Plus className="size-4" />Create workout</button></div> : <><div className="space-y-2">{pagedTemplates.visibleItems.map((template) => <Link className="template-row" key={template.id} to={`/workout/templates/${template.id}`}><span className="grid size-10 place-items-center rounded-xl bg-sky-400/10 text-sky-300"><Dumbbell className="size-[18px]" /></span><span className="min-w-0 flex-1"><strong>{template.name}</strong><small>{template.notes || 'Tap to add exercises and targets'}</small></span><ChevronRight className="size-4 text-slate-600" /></Link>)}</div><LoadMoreButton onClick={pagedTemplates.showMore} shown={pagedTemplates.shown} total={pagedTemplates.total} /></>}
     {creating && <Modal onClose={() => setCreating(false)} title="New workout"><label className="field-label">Workout name<input className="field-input mt-1" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void create() }} placeholder="e.g. Pull A" value={name} /></label><div className="mt-5 flex gap-3"><button className="button-secondary flex-1" onClick={() => setCreating(false)}>Cancel</button><button className="button-primary flex-1" disabled={!name.trim()} onClick={() => void create()}>Create</button></div></Modal>}
   </div>
 }
@@ -415,8 +422,10 @@ export function ActiveWorkoutPage() {
 
 export function WorkoutHistoryPage() {
   const history = useLiveQuery(() => workoutRepository.getWorkoutHistory(), [])
+  const historyItems = history ?? []
+  const pagedHistory = useIncrementalItems(historyItems, 25)
   return <div className="space-y-5 pb-3 pt-2"><BackLink to="/workout">Workout</BackLink><PageHeader eyebrow="Training record" title="Workout history" detail="Completed sessions remain separate from their source workouts." />
-    {(history?.length ?? 0) === 0 ? <div className="empty-card"><Clock3 className="size-6 text-sky-300" /><h2>No completed workouts yet</h2><p>Finish your first active workout to build your training history.</p></div> : <div className="space-y-2">{history?.map(({ session, workingSetCount, durationMinutes }) => <Link className="history-row" key={session.id} to={`/workout/history/${session.id}`}><span><strong>{new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(`${session.date}T12:00:00`))}</strong><small>{durationMinutes} min · {workingSetCount} working {workingSetCount === 1 ? 'set' : 'sets'}</small></span><span className="min-w-0 flex-1 text-right text-sm font-semibold text-slate-200">{session.name}</span><ChevronRight className="size-4 text-slate-600" /></Link>)}</div>}
+    {historyItems.length === 0 ? <div className="empty-card"><Clock3 className="size-6 text-sky-300" /><h2>No completed workouts yet</h2><p>Finish your first active workout to build your training history.</p></div> : <><div className="space-y-2">{pagedHistory.visibleItems.map(({ session, workingSetCount, durationMinutes }) => <Link className="history-row" key={session.id} to={`/workout/history/${session.id}`}><span><strong>{new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(`${session.date}T12:00:00`))}</strong><small>{durationMinutes} min · {workingSetCount} working {workingSetCount === 1 ? 'set' : 'sets'}</small></span><span className="min-w-0 flex-1 text-right text-sm font-semibold text-slate-200">{session.name}</span><ChevronRight className="size-4 text-slate-600" /></Link>)}</div><LoadMoreButton onClick={pagedHistory.showMore} shown={pagedHistory.shown} total={pagedHistory.total} /></>}
   </div>
 }
 

@@ -35,7 +35,24 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: 'index.html',
-        globPatterns: ['**/*.{js,css,html,svg,ico,png,webmanifest}']
+        globPatterns: ['**/*.{js,css,html,svg,ico,png,webmanifest}'],
+        globIgnores: [
+          'assets/NutritionPage-*.js',
+          'assets/ProgressPage-*.js',
+          'assets/SettingsPage-*.js',
+          'assets/WorkoutPage-*.js',
+          'assets/charts-*.js',
+          'assets/barcode-*.js'
+        ],
+        runtimeCaching: [{
+          urlPattern: /\/assets\/(?:NutritionPage|ProgressPage|SettingsPage|WorkoutPage|charts|barcode)-[^/]+\.js$/,
+          handler: 'CacheFirst',
+          options: {
+            cacheName: 'pocket-pace-feature-chunks',
+            expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 30 },
+            cacheableResponse: { statuses: [0, 200] }
+          }
+        }]
       }
     })
   ],
@@ -48,7 +65,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          charts: ['recharts'],
           barcode: ['@zxing/browser']
         }
       }
