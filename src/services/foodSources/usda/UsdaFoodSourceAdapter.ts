@@ -1,6 +1,7 @@
 import { credentialRepository } from '@/db/repositories/credentialRepository'
 import type { MacroValues } from '@/db/repositories/nutritionRepository'
 import type { ExternalFood, FoodSearchResult, FoodSourceAdapter } from '../FoodSourceAdapter'
+import { createTimedRequest } from '../timedRequest'
 
 const API_BASE = 'https://api.nal.usda.gov/fdc/v1'
 const API_KEY_NAME = 'usda-api-key'
@@ -98,26 +99,25 @@ export class UsdaFoodSourceAdapter implements FoodSourceAdapter {
     return Boolean((await credentialRepository.get(API_KEY_NAME))?.value)
   }
 
-  private async request<T>(path: string, query: Record<string, string>): Promise<T> {
+  private async request<T>(path: string, query: Record<string, string>, signal?: AbortSignal): Promise<T> {
     if (!navigator.onLine) throw new Error('You are offline. Local foods are still available.')
     const credential = await credentialRepository.get(API_KEY_NAME)
     if (!credential?.value) throw new Error('Add your USDA API key in Settings to search FoodData Central.')
     const url = new URL(`${API_BASE}${path}`)
     url.searchParams.set('api_key', credential.value)
     for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value)
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 10_000)
+    const request = createTimedRequest(signal)
     try {
-      const response = await fetch(url, { signal: controller.signal })
+      const response = await fetch(url, { signal: request.signal })
       if (response.status === 401 || response.status === 403) throw new Error('Your USDA API key was rejected. Check it in Settings.')
       if (response.status === 429) throw new Error('USDA rate limit reached. Try again in about an hour.')
       if (!response.ok) throw new Error('USDA search is unavailable right now. Try again later.')
       return await response.json() as T
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') throw new Error('USDA search timed out. Try again.')
+      if (error instanceof DOMException && error.name === 'AbortError' && request.didTimeout()) throw new Error('USDA search timed out. Try again.')
       throw error
     } finally {
-      window.clearTimeout(timeout)
+      request.cleanup()
     }
   }
 
@@ -131,10 +131,10 @@ export class UsdaFoodSourceAdapter implements FoodSourceAdapter {
     return toExternalFood(food)
   }
 
-  async lookupBarcode(barcode: string): Promise<UsdaExternalFood | null> {
-    const data = await this.request<{ foods?: UsdaSearchFood[] }>('/foods/search', { query: barcode, pageSize: '10', dataType: 'Branded' })
+  async lookupBarcode(barcode: string, signal?: AbortSignal): Promise<UsdaExternalFood | null> {
+    const data = await this.request<{ foods?: UsdaSearchFood[] }>('/foods/search', { query: barcode, pageSize: '10', dataType: 'Branded' }, signal)
     const match = (data.foods ?? []).find((food) => food.gtinUpc?.replace(/\D/g, '') === barcode.replace(/\D/g, '')) ?? data.foods?.[0]
-    return match ? this.getFood(String(match.fdcId)) : null
+    return match ? toExternalFood(match) : null
   }
 }
 

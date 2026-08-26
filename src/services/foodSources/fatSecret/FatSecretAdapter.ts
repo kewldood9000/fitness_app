@@ -1,6 +1,7 @@
 import { credentialRepository } from '@/db/repositories/credentialRepository'
 import { GRAMS_PER_OUNCE, type MacroValues } from '@/db/repositories/nutritionRepository'
 import type { BarcodeFoodSourceAdapter, ExternalFood } from '../FoodSourceAdapter'
+import { createTimedRequest } from '../timedRequest'
 
 export const FATSECRET_PROXY_URL_KEY = 'fatsecret-proxy-url'
 
@@ -91,7 +92,7 @@ export class FatSecretAdapter implements BarcodeFoodSourceAdapter {
     return Boolean((await credentialRepository.get(FATSECRET_PROXY_URL_KEY))?.value)
   }
 
-  async lookupBarcode(barcode: string): Promise<ExternalFood | null> {
+  async lookupBarcode(barcode: string, signal?: AbortSignal): Promise<ExternalFood | null> {
     if (typeof navigator !== 'undefined' && !navigator.onLine) throw new Error('You are offline. Local foods are still available.')
     const proxy = (await credentialRepository.get(FATSECRET_PROXY_URL_KEY))?.value
     if (!proxy) return null
@@ -102,20 +103,19 @@ export class FatSecretAdapter implements BarcodeFoodSourceAdapter {
       throw new Error('The FatSecret proxy URL in Settings is invalid.')
     }
     url.searchParams.set('barcode', toGtin13(barcode))
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 10_000)
+    const request = createTimedRequest(signal)
     try {
-      const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: controller.signal })
+      const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: request.signal })
       if (response.status === 404) return null
       if (response.status === 401 || response.status === 403) throw new Error('The FatSecret proxy rejected this app. Check its allowed origin and credentials.')
       if (response.status === 429) throw new Error('FatSecret rate limit reached. Try again shortly.')
       if (!response.ok) throw new Error('FatSecret is unavailable right now.')
       return toFatSecretFood(await response.json() as FatSecretResponse, toGtin13(barcode))
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') throw new Error('FatSecret timed out. Try again.')
+      if (error instanceof DOMException && error.name === 'AbortError' && request.didTimeout()) throw new Error('FatSecret timed out. Try again.')
       throw error
     } finally {
-      window.clearTimeout(timeout)
+      request.cleanup()
     }
   }
 }

@@ -1,5 +1,6 @@
 import { GRAMS_PER_OUNCE, type MacroValues } from '@/db/repositories/nutritionRepository'
 import type { BarcodeFoodSourceAdapter, ExternalFood } from '../FoodSourceAdapter'
+import { createTimedRequest } from '../timedRequest'
 
 const API_BASE = 'https://world.openfoodfacts.org/api/v2/product'
 const PRODUCT_FIELDS = ['code', 'product_name', 'generic_name', 'brands', 'ingredients_text', 'serving_size', 'serving_quantity', 'serving_quantity_unit', 'nutriments'].join(',')
@@ -74,23 +75,22 @@ export class OpenFoodFactsAdapter implements BarcodeFoodSourceAdapter {
   readonly source = 'OPEN_FOOD_FACTS' as const
   readonly label = 'Open Food Facts'
 
-  async lookupBarcode(barcode: string): Promise<ExternalFood | null> {
+  async lookupBarcode(barcode: string, signal?: AbortSignal): Promise<ExternalFood | null> {
     if (typeof navigator !== 'undefined' && !navigator.onLine) throw new Error('You are offline. Local foods are still available.')
     const digits = barcode.replace(/\D/g, '')
     const url = new URL(`${API_BASE}/${encodeURIComponent(digits)}.json`)
     url.searchParams.set('fields', PRODUCT_FIELDS)
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 10_000)
+    const request = createTimedRequest(signal)
     try {
-      const response = await fetch(url, { signal: controller.signal })
+      const response = await fetch(url, { signal: request.signal })
       if (response.status === 429) throw new Error('Open Food Facts rate limit reached. Try again shortly.')
       if (!response.ok) throw new Error('Open Food Facts is unavailable right now.')
       return toOpenFoodFactsFood(await response.json() as OpenFoodFactsResponse, digits)
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') throw new Error('Open Food Facts timed out. Try again.')
+      if (error instanceof DOMException && error.name === 'AbortError' && request.didTimeout()) throw new Error('Open Food Facts timed out. Try again.')
       throw error
     } finally {
-      window.clearTimeout(timeout)
+      request.cleanup()
     }
   }
 }

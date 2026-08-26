@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Barcode, Camera, ChevronDown, ChevronLeft, ChevronRight, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
-import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react'
+import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { BarcodeScanner } from '@/features/barcode/BarcodeScanner'
@@ -149,8 +149,8 @@ function CustomFoodSheet({ barcode, existing, onCreated, onDeleted, onClose }: {
   return <Sheet fullHeight keyboardReflow onClose={onClose} title={existing ? 'Edit custom food' : 'Custom food'}><form className="space-y-3" onSubmit={(event) => void submit(event)}><label className="field-label">Food name<input className="field-input" defaultValue={existing?.food.name} name="name" placeholder="e.g. Protein shake" /></label><div className="grid grid-cols-2 gap-3"><label className="field-label">Brand<input className="field-input" defaultValue={existing?.food.brand} name="brand" placeholder="Optional" /></label><label className="field-label">Barcode<input className="field-input" defaultValue={existing?.food.barcode ?? barcode} inputMode="numeric" name="barcode" placeholder="Optional" /></label></div><div className="grid grid-cols-2 gap-3"><label className="field-label">Label serving name<input className="field-input" defaultValue={existingServing?.name ?? 'serving'} name="servingName" placeholder="e.g. 1 cup" /></label><label className="field-label">Label serving qty<input className="field-input" defaultValue={existingServing?.quantity ?? 1} inputMode="decimal" min="0.01" name="servingQuantity" step="any" type="number" /></label></div><div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3"><label className="field-label">Serving weight<input className="field-input" defaultValue={grams} inputMode="decimal" min="0.01" name="servingWeight" step="any" type="number" /></label><label className="field-label">Unit<select className="field-input" defaultValue="g" name="servingWeightUnit"><option value="g">grams</option><option value="oz">ounces</option></select></label></div><p className="text-xs leading-5 text-slate-500">Enter calories and macros exactly as shown for this label serving. You can log any gram or ounce amount later.</p><div className="grid grid-cols-4 gap-2"><MacroInput defaultValue={macro('ENERGY_KCAL')} label="Kcal" name="calories" /><MacroInput defaultValue={macro('PROTEIN')} label="Protein" name="protein" /><MacroInput defaultValue={macro('CARBOHYDRATE')} label="Carbs" name="carbs" /><MacroInput defaultValue={macro('TOTAL_FAT')} label="Fat" name="fat" /></div><details className="rounded-xl bg-slate-800/60 px-3 py-2"><summary className="cursor-pointer text-sm font-semibold text-slate-300">More nutrients & notes</summary><div className="mt-3 grid grid-cols-3 gap-2"><MacroInput defaultValue={macro('FIBER')} label="Fiber g" name="fiber" /><MacroInput defaultValue={macro('TOTAL_SUGAR')} label="Sugar g" name="sugar" /><MacroInput defaultValue={macro('SODIUM')} label="Sodium mg" name="sodium" /></div><label className="field-label mt-3">Ingredients<textarea className="field-input min-h-18" defaultValue={existing?.food.ingredients} name="ingredients" /></label><label className="field-label mt-3">Notes<textarea className="field-input min-h-18" defaultValue={existing?.food.notes} name="notes" /></label></details>{error && <p className="text-sm text-rose-300">{error}</p>}<button className="button-primary w-full" type="submit">{existing ? 'Save changes' : 'Save custom food'}</button>{existing && <button className="button-danger-outline w-full" type="button" onClick={() => void remove()}>Delete custom food</button>}</form></Sheet>
 }
 
-function BarcodeSourceSheet({ barcode, matches, onChoose, onManual, onClose }: { barcode: string; matches: ExternalFood[]; onChoose: (food: ExternalFood) => void; onManual: () => void; onClose: () => void }) {
-  return <Sheet onClose={onClose} title="Choose food source"><p className="mb-3 text-sm leading-5 text-slate-400">Barcode {barcode} matched more than one database. Choose the entry whose label information looks right.</p><div className="space-y-2">{matches.map((food) => {
+function BarcodeSourceSheet({ barcode, loading, matches, onChoose, onManual, onClose }: { barcode: string; loading: boolean; matches: ExternalFood[]; onChoose: (food: ExternalFood) => void; onManual: () => void; onClose: () => void }) {
+  return <Sheet onClose={onClose} title="Choose food source"><p className="mb-3 text-sm leading-5 text-slate-400">{matches.length > 1 ? `Barcode ${barcode} matched more than one database. Choose the entry whose label information looks right.` : `Found a match for ${barcode}. You can select it now while the other databases finish checking.`}</p>{loading && <p className="mb-3 rounded-xl bg-sky-300/10 px-3 py-2 text-xs font-semibold text-sky-200">Checking other enabled databases…</p>}<div className="space-y-2">{matches.map((food) => {
     const servingGrams = food.servingGrams ?? 100
     const servingCalories = food.nutrients.ENERGY_KCAL * servingGrams / 100
     return <button className="w-full rounded-2xl border border-white/[0.07] bg-slate-800/70 p-4 text-left transition hover:border-sky-300/30 hover:bg-slate-800" key={`${food.source}:${food.sourceFoodId}`} onClick={() => onChoose(food)} type="button"><span className="inline-flex rounded-full bg-sky-300/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-sky-300">{foodSourceLabels[food.source]}</span><strong className="mt-2 block text-sm text-slate-100">{food.name}</strong>{food.brand && <span className="mt-0.5 block text-xs text-slate-400">{food.brand}</span>}<span className="mt-2 block text-xs text-slate-500">{Math.round(servingCalories * 10) / 10} kcal · {food.servingName || `${Math.round(servingGrams * 10) / 10} g`}</span></button>
@@ -167,6 +167,7 @@ function FoodSearchSheet({ onClose, onSelect }: { onClose: () => void; onSelect:
   const [barcodeMatches, setBarcodeMatches] = useState<ExternalFood[]>([])
   const [matchedBarcode, setMatchedBarcode] = useState('')
   const [barcodeLoading, setBarcodeLoading] = useState(false)
+  const barcodeLookupRef = useRef<AbortController | undefined>(undefined)
   const localMatches = useLiveQuery(() => tab === 'all' && query.trim() ? nutritionRepository.searchLocal(query, 30) : Promise.resolve([]), [query, tab])
   const favorites = useLiveQuery(() => nutritionRepository.getFavorites(), [])
   const recents = useLiveQuery(() => nutritionRepository.getRecents(50), [])
@@ -195,28 +196,64 @@ function FoodSearchSheet({ onClose, onSelect }: { onClose: () => void; onSelect:
     return () => window.clearTimeout(timer)
   }, [cleanQuery, tab])
 
+  useEffect(() => () => barcodeLookupRef.current?.abort(), [])
+
   async function selectUsda(result: FoodSearchResult) { try { const details = await cacheExternalFood(await usdaAdapter.getFood(result.sourceFoodId)); if (details) onSelect(details) } catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to save that USDA food.') } }
-  async function chooseBarcodeFood(food: ExternalFood, fallbackBarcode = matchedBarcode) { try { const details = await cacheExternalFood({ ...food, barcode: food.barcode || fallbackBarcode }); setBarcodeMatches([]); if (details) onSelect(details) } catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to save that food.'); setBarcodeMatches([]) } }
+  async function chooseBarcodeFood(food: ExternalFood, fallbackBarcode = matchedBarcode) {
+    barcodeLookupRef.current?.abort()
+    barcodeLookupRef.current = undefined
+    setBarcodeLoading(false)
+    try { const details = await cacheExternalFood({ ...food, barcode: food.barcode || fallbackBarcode }); setBarcodeMatches([]); if (details) onSelect(details) } catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to save that food.'); setBarcodeMatches([]) }
+  }
+
+  function dismissBarcodeMatches() {
+    barcodeLookupRef.current?.abort()
+    barcodeLookupRef.current = undefined
+    setBarcodeLoading(false)
+    setBarcodeMatches([])
+  }
+
   async function onBarcode(value: string) {
     setScanning(false)
+    barcodeLookupRef.current?.abort()
+    const lookupController = new AbortController()
+    barcodeLookupRef.current = lookupController
     setBarcodeLoading(true)
+    setBarcodeMatches([])
+    setMatchedBarcode(value)
     setMessage('Checking enabled food databases…')
     const localFood = await nutritionRepository.findByBarcode(value)
+    if (lookupController.signal.aborted) return
+    if (localFood) {
+      barcodeLookupRef.current = undefined
+      setBarcodeLoading(false)
+      setMessage('')
+      onSelect(localFood)
+      return
+    }
     try {
-      const result = await lookupBarcodeAcrossSources(value)
+      const result = await lookupBarcodeAcrossSources(value, {
+        signal: lookupController.signal,
+        timeoutMs: 3_000,
+        onMatch: (food) => {
+          if (lookupController.signal.aborted) return
+          setBarcodeMatches((current) => current.some((item) => item.source === food.source && item.sourceFoodId === food.sourceFoodId) ? current : [...current, food])
+          setMessage('Match found. Checking the remaining databases…')
+        }
+      })
+      if (lookupController.signal.aborted) return
       if (result.matches.length > 1) {
-        setMatchedBarcode(value)
         setBarcodeMatches(result.matches)
         setMessage(result.issues.length ? result.issues.map((issue) => `${issue.source}: ${issue.message}`).join(' ') : '')
         return
       }
       if (result.matches.length === 1) {
-        setMatchedBarcode(value)
         await chooseBarcodeFood(result.matches[0], value)
         return
       }
-      if (localFood) {
-        onSelect(localFood)
+      if (result.timedOut) {
+        const issueText = result.issues.map((issue) => `${issue.source}: ${issue.message}`).join(' ')
+        setMessage(`${issueText ? `${issueText} ` : ''}No barcode result arrived within 3 seconds. Try scanning again or enter it manually.`)
         return
       }
       setMessage(result.issues.length ? result.issues.map((issue) => `${issue.source}: ${issue.message}`).join(' ') : 'No database match found. You can create this food manually.')
@@ -226,7 +263,10 @@ function FoodSearchSheet({ onClose, onSelect }: { onClose: () => void; onSelect:
       if (localFood) onSelect(localFood)
       else setCustomBarcode(value)
     } finally {
-      setBarcodeLoading(false)
+      if (barcodeLookupRef.current === lookupController) {
+        barcodeLookupRef.current = undefined
+        setBarcodeLoading(false)
+      }
     }
   }
   return <Sheet fullHeight onClose={onClose} title="Add food">
@@ -243,7 +283,7 @@ function FoodSearchSheet({ onClose, onSelect }: { onClose: () => void; onSelect:
     <LoadMoreButton onClick={pagedResults.showMore} shown={pagedResults.shown} total={pagedResults.total} />
     {scanning && <BarcodeScanner onClose={() => setScanning(false)} onDetected={(value) => void onBarcode(value)} />}
     {customBarcode !== undefined && <CustomFoodSheet barcode={customBarcode} onClose={() => setCustomBarcode(undefined)} onCreated={(food) => { setCustomBarcode(undefined); onSelect(food) }} />}
-    {barcodeMatches.length > 1 && <BarcodeSourceSheet barcode={matchedBarcode} matches={barcodeMatches} onChoose={(food) => void chooseBarcodeFood(food)} onClose={() => setBarcodeMatches([])} onManual={() => { setBarcodeMatches([]); setCustomBarcode(matchedBarcode) }} />}
+    {barcodeMatches.length > 0 && <BarcodeSourceSheet barcode={matchedBarcode} loading={barcodeLoading} matches={barcodeMatches} onChoose={(food) => void chooseBarcodeFood(food)} onClose={dismissBarcodeMatches} onManual={() => { dismissBarcodeMatches(); setCustomBarcode(matchedBarcode) }} />}
   </Sheet>
 }
 
