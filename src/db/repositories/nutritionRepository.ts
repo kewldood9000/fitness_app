@@ -276,6 +276,11 @@ export const nutritionRepository = {
     return { entries, totals: calculateDayTotals(entries) }
   },
 
+  async getLastFoodLog(foodId: string): Promise<FoodLogEntry | undefined> {
+    const entries = await db.foodLogs.where('foodId').equals(foodId).toArray()
+    return entries.sort((first, second) => second.createdAt.localeCompare(first.createdAt))[0]
+  },
+
   getDateRangeLogs: (start: string, end: string) => db.foodLogs.where('date').between(start, end, true, true).toArray(),
   deleteFoodLog: (id: string) => db.foodLogs.delete(id)
 }

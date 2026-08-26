@@ -67,4 +67,15 @@ describe('food amount units', () => {
 
     expect((await db.foodLogs.toArray())[0]).toMatchObject({ servingQuantity: 2, servingUnit: 'bar', grams: 80, calories: 100, protein: 10 })
   })
+
+  it('returns the most recently logged amount and unit for a food', async () => {
+    const foodId = await nutritionRepository.createCustomFood({ name: 'Rice', servingName: 'cup', servingQuantity: 1, servingGrams: 200, macros })
+    await nutritionRepository.logFood({ date: '2026-08-24', meal: 'dinner', foodId, quantity: 1, amountUnit: 'oz' })
+    await nutritionRepository.logFood({ date: '2026-08-25', meal: 'lunch', foodId, quantity: 82, amountUnit: 'g' })
+    const entries = await db.foodLogs.toArray()
+    await db.foodLogs.update(entries.find((item) => item.servingUnit === 'oz')!.id, { createdAt: '2026-08-24T18:00:00.000Z' })
+    await db.foodLogs.update(entries.find((item) => item.servingUnit === 'g')!.id, { createdAt: '2026-08-25T12:00:00.000Z' })
+
+    expect(await nutritionRepository.getLastFoodLog(foodId)).toMatchObject({ servingQuantity: 82, servingUnit: 'g', grams: 82 })
+  })
 })

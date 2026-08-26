@@ -50,7 +50,9 @@ function FoodLogSheet({ food, date, meal, onEdit, onClose }: { food: FoodDetails
   const [selectedMeal, setSelectedMeal] = useState(meal)
   const [portion, setPortion] = useState(food.food.defaultServingId ?? food.servings[0]?.id ?? 'g')
   const [quantity, setQuantity] = useState('1')
+  const [remembered, setRemembered] = useState(false)
   const [saving, setSaving] = useState(false)
+  const lastEntry = useLiveQuery(() => nutritionRepository.getLastFoodLog(food.food.id), [food.food.id], null)
   const serving = food.servings.find((item) => item.id === portion) ?? food.servings[0]
   const amountUnit: FoodAmountUnit = portion === 'g' ? 'g' : portion === 'oz' ? 'oz' : 'serving'
   const amount = Number(quantity) || 0
@@ -61,7 +63,29 @@ function FoodLogSheet({ food, date, meal, onEdit, onClose }: { food: FoodDetails
       : (serving?.grams ?? 100) * amount
   const factor = grams / 100
 
+  useEffect(() => {
+    if (remembered || lastEntry === null) return
+    setRemembered(true)
+    if (!lastEntry) return
+    if ((lastEntry.servingUnit === 'g' || lastEntry.servingUnit === 'oz') && lastEntry.servingQuantity > 0) {
+      setPortion(lastEntry.servingUnit)
+      setQuantity(String(Math.round(lastEntry.servingQuantity * 10_000) / 10_000))
+      return
+    }
+    const priorServing = food.servings.find((item) => item.name === lastEntry.servingUnit)
+    if (priorServing && lastEntry.servingQuantity > 0) {
+      setPortion(priorServing.id)
+      setQuantity(String(Math.round((lastEntry.servingQuantity / Math.max(priorServing.quantity, 0.01)) * 10_000) / 10_000))
+      return
+    }
+    if (lastEntry.grams && lastEntry.grams > 0) {
+      setPortion('g')
+      setQuantity(String(Math.round(lastEntry.grams * 10_000) / 10_000))
+    }
+  }, [food.servings, lastEntry, remembered])
+
   function selectPortion(nextPortion: string) {
+    setRemembered(true)
     const nextServing = food.servings.find((item) => item.id === nextPortion)
     const nextQuantity = nextPortion === 'g'
       ? grams
@@ -86,7 +110,7 @@ function FoodLogSheet({ food, date, meal, onEdit, onClose }: { food: FoodDetails
   return <Sheet onClose={onClose} title="Log food">
     <div className="rounded-2xl bg-slate-800/65 p-4"><p className="text-base font-semibold text-slate-100">{food.food.name}</p><p className="mt-1 text-xs text-slate-500">{food.food.brand || foodSourceLabels[food.food.source]}</p><div className="mt-4 grid grid-cols-4 gap-2">{[['kcal', food.nutrients.ENERGY_KCAL * factor], ['protein', food.nutrients.PROTEIN * factor], ['carbs', food.nutrients.CARBOHYDRATE * factor], ['fat', food.nutrients.TOTAL_FAT * factor]].map(([label, value]) => <div key={label as string}><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label as string}</p><p className="mt-1 text-sm font-semibold text-slate-200">{Math.round(Number(value) * 10) / 10}</p></div>)}</div></div>
     <label className="field-label mt-4">Meal<select className="field-input" onChange={(event) => setSelectedMeal(event.target.value as Meal)} value={selectedMeal}>{meals.map((item) => <option key={item.key} value={item.key}>{item.title}</option>)}</select></label>
-    <div className="mt-3 grid grid-cols-2 gap-3"><label className="field-label">Amount<input className="field-input" inputMode="decimal" min="0.01" onChange={(event) => setQuantity(event.target.value)} step="any" type="number" value={quantity} /></label><label className="field-label">Unit<select className="field-input" onChange={(event) => selectPortion(event.target.value)} value={portion}><option value="g">Grams (g)</option><option value="oz">Ounces (oz)</option>{food.servings.map((item) => <option key={item.id} value={item.id}>{item.quantity !== 1 ? `${item.quantity} ` : ''}{item.name}{item.grams ? ` (${item.grams} g)` : ''}</option>)}</select></label></div>
+    <div className="mt-3 grid grid-cols-2 gap-3"><label className="field-label">Amount<input className="field-input" inputMode="decimal" min="0.01" onChange={(event) => { setRemembered(true); setQuantity(event.target.value) }} step="any" type="number" value={quantity} /></label><label className="field-label">Unit<select className="field-input" onChange={(event) => selectPortion(event.target.value)} value={portion}><option value="g">Grams (g)</option><option value="oz">Ounces (oz)</option>{food.servings.map((item) => <option key={item.id} value={item.id}>{item.quantity !== 1 ? `${item.quantity} ` : ''}{item.name}{item.grams ? ` (${item.grams} g)` : ''}</option>)}</select></label></div>
     <p className="mt-2 text-xs text-slate-500">{Math.round(grams * 10) / 10} g selected · nutrition updates automatically</p>
     {onEdit && food.food.source === 'CUSTOM' && <button className="button-quiet mt-3" onClick={() => onEdit(food)}>Edit custom food</button>}
     <button className="button-primary mt-5 w-full" disabled={saving || amount <= 0} onClick={() => void log()}>{saving ? 'Logging…' : 'Log food'}</button>
