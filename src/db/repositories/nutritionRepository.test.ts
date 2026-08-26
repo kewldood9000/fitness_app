@@ -36,6 +36,14 @@ describe('food picker lists', () => {
     expect((await nutritionRepository.getFavorites()).map((item) => item.food.name)).toEqual(['apple', 'Ziti'])
     expect((await nutritionRepository.getCustomFoods()).map((item) => item.food.name)).toEqual(['apple', 'Ziti'])
   })
+
+  it('keeps identical source IDs from different external databases separate', async () => {
+    const openFoodFactsId = await nutritionRepository.cacheExternalFood({ source: 'OPEN_FOOD_FACTS', sourceFoodId: '123', name: 'Open product', barcode: '00123', nutrients: macros })
+    const fatSecretId = await nutritionRepository.cacheExternalFood({ source: 'FATSECRET', sourceFoodId: '123', name: 'FatSecret product', barcode: '00456', nutrients: macros })
+
+    expect(fatSecretId).not.toBe(openFoodFactsId)
+    expect((await db.foods.toArray()).map((food) => food.source).sort()).toEqual(['FATSECRET', 'OPEN_FOOD_FACTS'])
+  })
 })
 
 describe('food amount units', () => {

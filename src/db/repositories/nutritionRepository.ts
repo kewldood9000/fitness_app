@@ -1,5 +1,5 @@
 import { db } from '@/db/database'
-import type { Food, FoodLogEntry, FoodNutrient, FoodReference, Meal, Serving } from '@/types/models'
+import type { Food, FoodLogEntry, FoodNutrient, FoodReference, FoodSource, Meal, Serving } from '@/types/models'
 
 export const nutrientCodes = ['ENERGY_KCAL', 'PROTEIN', 'CARBOHYDRATE', 'TOTAL_FAT', 'FIBER', 'TOTAL_SUGAR', 'SODIUM'] as const
 export type NutrientCode = (typeof nutrientCodes)[number]
@@ -17,6 +17,7 @@ export interface FoodDetails {
 }
 
 export interface ExternalFoodInput {
+  source: Exclude<FoodSource, 'CUSTOM'>
   sourceFoodId: string
   name: string
   brand?: string
@@ -211,14 +212,14 @@ export const nutritionRepository = {
     })
   },
 
-  async cacheUsdaFood(input: ExternalFoodInput): Promise<string> {
-    const existing = await db.foods.where('sourceFoodId').equals(input.sourceFoodId).first()
+  async cacheExternalFood(input: ExternalFoodInput): Promise<string> {
+    const existing = await db.foods.where('sourceFoodId').equals(input.sourceFoodId).and((food) => food.source === input.source).first()
     const timestamp = now()
     const foodId = existing?.id ?? newId()
     const servingId = existing?.defaultServingId ?? newId()
     const grams = input.servingGrams && input.servingGrams > 0 ? input.servingGrams : 100
     const food: Food = {
-      id: foodId, source: 'USDA', sourceFoodId: input.sourceFoodId, name: input.name, normalizedName: normalized(input.name), brand: input.brand, brandOwner: input.brandOwner, brandName: input.brandName,
+      id: foodId, source: input.source, sourceFoodId: input.sourceFoodId, name: input.name, normalizedName: normalized(input.name), brand: input.brand, brandOwner: input.brandOwner, brandName: input.brandName,
       barcode: input.barcode, ingredients: input.ingredients, publicationDate: input.publicationDate, lastFetchedAt: timestamp, defaultServingId: servingId, createdAt: existing?.createdAt ?? timestamp, updatedAt: timestamp
     }
     const serving: Serving = { id: servingId, foodId, name: input.servingName || '100 g', grams, quantity: 1, createdAt: existing?.createdAt ?? timestamp, updatedAt: timestamp }
@@ -231,6 +232,10 @@ export const nutritionRepository = {
       if (input.barcode) await db.barcodeMappings.put({ id: input.barcode, barcode: input.barcode, foodId, createdAt: timestamp, updatedAt: timestamp })
     })
     return foodId
+  },
+
+  async cacheUsdaFood(input: Omit<ExternalFoodInput, 'source'>): Promise<string> {
+    return nutritionRepository.cacheExternalFood({ ...input, source: 'USDA' })
   },
 
   async findByBarcode(barcode: string): Promise<FoodDetails | undefined> {

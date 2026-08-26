@@ -91,6 +91,13 @@ function toExternalFood(food: UsdaFoodDetails): UsdaExternalFood {
 }
 
 export class UsdaFoodSourceAdapter implements FoodSourceAdapter {
+  readonly source = 'USDA' as const
+  readonly label = 'USDA FoodData Central'
+
+  async isAvailable(): Promise<boolean> {
+    return Boolean((await credentialRepository.get(API_KEY_NAME))?.value)
+  }
+
   private async request<T>(path: string, query: Record<string, string>): Promise<T> {
     if (!navigator.onLine) throw new Error('You are offline. Local foods are still available.')
     const credential = await credentialRepository.get(API_KEY_NAME)

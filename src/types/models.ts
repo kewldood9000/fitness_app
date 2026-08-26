@@ -1,4 +1,4 @@
-export type FoodSource = 'USDA' | 'CUSTOM'
+export type FoodSource = 'USDA' | 'OPEN_FOOD_FACTS' | 'FATSECRET' | 'CUSTOM'
 export type Meal = 'breakfast' | 'lunch' | 'dinner' | 'snacks'
 export type WeightUnit = 'lb' | 'kg'
 

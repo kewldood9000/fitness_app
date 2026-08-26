@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pocket-pace-fatsecret-proxy",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-25",
+  "vars": {
+    "ALLOWED_ORIGINS": "https://kewldood9000.github.io,http://localhost:5173",
+    "FATSECRET_REGION": "US",
+    "FATSECRET_LANGUAGE": "en"
+  }
+}

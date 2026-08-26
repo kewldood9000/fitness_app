@@ -13,7 +13,7 @@ All planned phases are complete: a production-ready React/TypeScript/Tailwind PW
 - Workout library, reusable templates, weekly scheduling, recovery-safe active sessions, set/reps/weight/RIR logging, rest timers, previous-performance context, and history.
 - Bodyweight logs, trailing 7-entry average, 1/3/6-month charts, exercise strength history, estimated 1RM, volume, and personal-record indicators.
 - Per-meal nutrition logging with custom foods, local search, favorites, recents, serving-based macro calculations, and historical food snapshots.
-- Optional browser-direct USDA FoodData Central search and barcode lookup. USDA results are cached locally for later offline reuse.
+- Multi-source barcode lookup through Open Food Facts, optional USDA FoodData Central, and optional FatSecret. If databases return competing entries, the scanner lets you choose the source before caching the food locally.
 - Portable, versioned JSON backup/restore that excludes local API credentials. Restore exports a protective backup immediately before replacing app data.
 - Native barcode detection where available plus a ZXing fallback, rear-camera preference, torch support where supported, haptic feedback, duplicate suppression, and manual UPC/EAN entry.
 
@@ -97,6 +97,14 @@ Barcode scanning requests Safari camera access only after you start scanning and
 Paste your own FoodData Central/data.gov key in Settings to enable browser-direct search and barcode lookup. The app calls the documented FoodData Central food-search and food-detail endpoints, caches selected results locally, and remains usable without a key for custom/local foods. See the [official FoodData Central API guide](https://fdc.nal.usda.gov/api-guide/) for key provisioning and request limits.
 
 No API key is committed to source control, shown in the UI after entry, logged, or included in the standard fitness backup. A static GitHub Pages client cannot keep a user-provided key secret from that user’s own browser profile; it only keeps it local to that profile and separate from exported fitness data.
+
+## Barcode food databases
+
+Open Food Facts barcode lookup is enabled automatically and does not require an API key. The app also checks USDA when a USDA key is configured. Matches are converted to the app's per-100-gram nutrient model, cached locally, and remain available offline afterward.
+
+FatSecret barcode access requires its `barcode` OAuth scope and cannot safely run directly in a static GitHub Pages client. FatSecret requires token requests through a proxy server, so an optional Cloudflare Worker is included in [`fatsecret-proxy`](./fatsecret-proxy). Deploy it with FatSecret credentials stored as Worker secrets, then paste the Worker URL into **Settings → Food Data → FatSecret proxy URL**. Do not put a FatSecret Client Secret in the app or repository.
+
+When two or more enabled databases match a scan, Pocket Pace displays the name, brand, serving, calories, and source for each result so you can select the entry that agrees with the package label.
 
 ## Backups
 
