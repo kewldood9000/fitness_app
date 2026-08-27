@@ -20,6 +20,7 @@ function useKeyboardViewport() {
     const visualViewport = window.visualViewport
     let largestViewportHeight = Math.max(window.innerHeight, visualViewport?.height ?? 0)
     let revealTimer: number | undefined
+    let viewportSettleTimer: number | undefined
     let restoreTimer: number | undefined
     let keyboardWasOpen = false
     const savedScrollPositions = new Map<HTMLElement, number>()
@@ -39,65 +40,83 @@ function useKeyboardViewport() {
       const visibleBottom = visibleTop + (visualViewport?.height ?? window.innerHeight)
       const usableTop = Math.max(scrollBounds.top, visibleTop) + breathingRoom
       const usableBottom = Math.min(scrollBounds.bottom, visibleBottom) - breathingRoom
-      if (fieldBounds.bottom > usableBottom) scroller.scrollBy({ behavior: 'smooth', top: fieldBounds.bottom - usableBottom })
-      else if (fieldBounds.top < usableTop) scroller.scrollBy({ behavior: 'smooth', top: fieldBounds.top - usableTop })
+      if (fieldBounds.bottom > usableBottom) scroller.scrollBy({ behavior: 'auto', top: fieldBounds.bottom - usableBottom })
+      else if (fieldBounds.top < usableTop) scroller.scrollBy({ behavior: 'auto', top: fieldBounds.top - usableTop })
     }
 
-    function scheduleReveal() {
+    function scheduleReveal(delay = 220) {
       window.clearTimeout(revealTimer)
-      revealTimer = window.setTimeout(revealFocusedField, 90)
+      revealTimer = window.setTimeout(revealFocusedField, delay)
     }
 
-    function updateViewport() {
+    function commitViewport(keyboardOpen: boolean, keyboardOccludedHeight: number) {
+      if (!keyboardOpen) {
+        largestViewportHeight = Math.max(window.innerHeight, visualViewport?.height ?? 0)
+        root.style.setProperty('--stable-viewport-height', `${Math.round(largestViewportHeight)}px`)
+        root.style.setProperty('--stable-modal-max-height', `${Math.round(largestViewportHeight * 0.84)}px`)
+      }
+      root.style.setProperty('--keyboard-occluded-height', `${Math.round(keyboardOccludedHeight)}px`)
+      root.classList.toggle('keyboard-open', keyboardOpen)
+
+      if (!keyboardOpen && keyboardWasOpen) {
+        window.clearTimeout(restoreTimer)
+        restoreTimer = window.setTimeout(() => {
+          savedScrollPositions.forEach((scrollTop, scroller) => scroller.scrollTo({ behavior: 'auto', top: scrollTop }))
+          savedScrollPositions.clear()
+        }, 200)
+      }
+      keyboardWasOpen = keyboardOpen
+      if (keyboardOpen) scheduleReveal(220)
+    }
+
+    function updateViewport({ immediate = false } = {}) {
       const viewportHeight = visualViewport?.height ?? window.innerHeight
       const viewportTop = visualViewport?.offsetTop ?? 0
       largestViewportHeight = Math.max(largestViewportHeight, viewportHeight)
       const keyboardThreshold = Math.max(120, largestViewportHeight * 0.18)
       const keyboardOpen = largestViewportHeight - viewportHeight > keyboardThreshold
       const keyboardOccludedHeight = keyboardOpen ? Math.max(0, largestViewportHeight - viewportHeight - viewportTop) : 0
-      if (keyboardOpen && !keyboardWasOpen) {
-        document.querySelectorAll<HTMLElement>('.keyboard-reflow-modal .modal-scroll').forEach((scroller) => savedScrollPositions.set(scroller, scroller.scrollTop))
-      } else if (!keyboardOpen && keyboardWasOpen) {
-        window.clearTimeout(restoreTimer)
-        restoreTimer = window.setTimeout(() => {
-          savedScrollPositions.forEach((scrollTop, scroller) => scroller.scrollTo({ behavior: 'smooth', top: scrollTop }))
-          savedScrollPositions.clear()
-        }, 80)
-      }
-      keyboardWasOpen = keyboardOpen
-      root.style.setProperty('--visual-viewport-height', `${Math.round(viewportHeight)}px`)
-      root.style.setProperty('--visual-viewport-top', `${Math.round(viewportTop)}px`)
-      root.style.setProperty('--stable-viewport-height', `${Math.round(largestViewportHeight)}px`)
-      root.style.setProperty('--keyboard-occluded-height', `${Math.round(keyboardOccludedHeight)}px`)
-      root.classList.toggle('keyboard-open', keyboardOpen)
-      if (keyboardOpen) scheduleReveal()
+      window.clearTimeout(viewportSettleTimer)
+      if (immediate) commitViewport(keyboardOpen, keyboardOccludedHeight)
+      else viewportSettleTimer = window.setTimeout(() => commitViewport(keyboardOpen, keyboardOccludedHeight), 120)
     }
 
     function resetViewportBaseline() {
       largestViewportHeight = Math.max(window.innerHeight, visualViewport?.height ?? 0)
+      updateViewport({ immediate: true })
+    }
+
+    function handleViewportChange() {
       updateViewport()
     }
 
-    updateViewport()
-    visualViewport?.addEventListener('resize', updateViewport)
-    visualViewport?.addEventListener('scroll', updateViewport)
-    window.addEventListener('resize', updateViewport)
+    function handleFocusIn() {
+      if (!keyboardWasOpen && savedScrollPositions.size === 0) {
+        document.querySelectorAll<HTMLElement>('.keyboard-reflow-modal .modal-scroll').forEach((scroller) => savedScrollPositions.set(scroller, scroller.scrollTop))
+      }
+      scheduleReveal()
+    }
+
+    updateViewport({ immediate: true })
+    visualViewport?.addEventListener('resize', handleViewportChange)
+    visualViewport?.addEventListener('scroll', handleViewportChange)
+    window.addEventListener('resize', handleViewportChange)
     window.addEventListener('orientationchange', resetViewportBaseline)
-    document.addEventListener('focusin', scheduleReveal)
+    document.addEventListener('focusin', handleFocusIn)
 
     return () => {
-      visualViewport?.removeEventListener('resize', updateViewport)
-      visualViewport?.removeEventListener('scroll', updateViewport)
-      window.removeEventListener('resize', updateViewport)
+      visualViewport?.removeEventListener('resize', handleViewportChange)
+      visualViewport?.removeEventListener('scroll', handleViewportChange)
+      window.removeEventListener('resize', handleViewportChange)
       window.removeEventListener('orientationchange', resetViewportBaseline)
-      document.removeEventListener('focusin', scheduleReveal)
+      document.removeEventListener('focusin', handleFocusIn)
       window.clearTimeout(revealTimer)
+      window.clearTimeout(viewportSettleTimer)
       window.clearTimeout(restoreTimer)
       savedScrollPositions.clear()
       root.classList.remove('keyboard-open')
-      root.style.removeProperty('--visual-viewport-height')
-      root.style.removeProperty('--visual-viewport-top')
       root.style.removeProperty('--stable-viewport-height')
+      root.style.removeProperty('--stable-modal-max-height')
       root.style.removeProperty('--keyboard-occluded-height')
     }
   }, [])

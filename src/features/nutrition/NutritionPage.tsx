@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Barcode, Camera, ChevronDown, ChevronLeft, ChevronRight, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
+import { Barcode, ChevronDown, ChevronLeft, ChevronRight, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
@@ -11,7 +11,7 @@ import { lookupBarcodeAcrossSources } from '@/services/foodSources/barcodeLookup
 import { foodSourceLabels, type ExternalFood } from '@/services/foodSources/FoodSourceAdapter'
 import { usdaAdapter } from '@/services/foodSources/usda/UsdaFoodSourceAdapter'
 import type { FoodSearchResult } from '@/services/foodSources/FoodSourceAdapter'
-import type { Meal } from '@/types/models'
+import type { FoodLogEntry, Meal } from '@/types/models'
 import { addDays, formatLongDate, toDateKey } from '@/utils/dates'
 import { useIncrementalItems } from '@/hooks/useIncrementalItems'
 
@@ -19,9 +19,9 @@ const meals: Array<{ key: Meal; title: string }> = [{ key: 'breakfast', title: '
 interface Goals { calories?: number; protein?: number; carbs?: number; fat?: number }
 const emptyMacros = (): MacroValues => ({ ENERGY_KCAL: 0, PROTEIN: 0, CARBOHYDRATE: 0, TOTAL_FAT: 0, FIBER: 0, TOTAL_SUGAR: 0, SODIUM: 0 })
 
-function Sheet({ title, onClose, children, fullHeight = false, keyboardReflow = false }: { title: string; onClose: () => void; children: ReactNode; fullHeight?: boolean; keyboardReflow?: boolean }) {
+function Sheet({ title, onClose, children, fullHeight = false, hidden = false, keyboardReflow = false }: { title: string; onClose: () => void; children: ReactNode; fullHeight?: boolean; hidden?: boolean; keyboardReflow?: boolean }) {
   const titleId = useId()
-  return createPortal(<div aria-labelledby={titleId} aria-modal="true" className={`modal-backdrop ${fullHeight ? 'persistent-modal-backdrop' : ''} ${keyboardReflow ? 'keyboard-reflow-modal' : ''}`} role="dialog"><div className={`modal-panel ${fullHeight ? 'persistent-modal-panel' : ''}`}><div className="modal-header flex items-center justify-between gap-3 px-5 pb-4 pt-5"><h2 className="text-lg font-semibold tracking-[-0.03em] text-slate-50" id={titleId}>{title}</h2><button aria-label="Close" className="workout-icon-button" onClick={onClose}><X className="size-4" /></button></div><div className="modal-scroll px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">{children}</div></div></div>, document.body)
+  return createPortal(<div aria-hidden={hidden || undefined} aria-labelledby={titleId} aria-modal={hidden ? undefined : 'true'} className={`modal-backdrop ${hidden ? 'modal-hidden' : ''} ${fullHeight ? 'persistent-modal-backdrop' : ''} ${keyboardReflow ? 'keyboard-reflow-modal' : ''}`} role="dialog"><div className={`modal-panel ${fullHeight ? 'persistent-modal-panel' : ''}`}><div className="modal-header flex items-center justify-between gap-3 px-5 pb-4 pt-5"><h2 className="text-lg font-semibold tracking-[-0.03em] text-slate-50" id={titleId}>{title}</h2><button aria-label="Close" className="workout-icon-button" onClick={onClose}><X className="size-4" /></button></div><div className="modal-scroll px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">{children}</div></div></div>, document.body)
 }
 
 function ResultRow({ food, onPick }: { food: FoodDetails; onPick: (food: FoodDetails) => void }) {
@@ -48,11 +48,22 @@ async function cacheExternalFood(food: ExternalFood): Promise<FoodDetails | unde
 
 function MacroInput({ label, name, defaultValue = 0 }: { label: string; name: string; defaultValue?: number }) { return <label className="field-label text-[10px] uppercase tracking-[0.08em] text-slate-500">{label}<input className="compact-field mt-1" defaultValue={defaultValue} inputMode="decimal" min="0" name={name} step="0.1" type="number" /></label> }
 
-function FoodLogSheet({ food, date, meal, onEdit, onClose }: { food: FoodDetails; date: string; meal: Meal; onEdit?: (food: FoodDetails) => void; onClose: () => void }) {
+function FoodLogSheet({ entry, food, date, meal, onEdit, onBack, onSaved }: { entry?: FoodLogEntry; food: FoodDetails; date: string; meal: Meal; onEdit?: (food: FoodDetails) => void; onBack: () => void; onSaved: () => void }) {
+  const loggedServing = entry ? food.servings.find((item) => item.name === entry.servingUnit) : undefined
+  const initialPortion = entry
+    ? entry.servingUnit === 'g' || entry.servingUnit === 'oz'
+      ? entry.servingUnit
+      : loggedServing?.id ?? 'g'
+    : food.food.defaultServingId ?? food.servings[0]?.id ?? 'g'
+  const initialQuantity = entry
+    ? entry.servingUnit === 'g' || entry.servingUnit === 'oz'
+      ? entry.servingQuantity
+      : loggedServing ? entry.servingQuantity / Math.max(loggedServing.quantity, 0.01) : entry.grams ?? entry.servingQuantity
+    : 1
   const [selectedMeal, setSelectedMeal] = useState(meal)
-  const [portion, setPortion] = useState(food.food.defaultServingId ?? food.servings[0]?.id ?? 'g')
-  const [quantity, setQuantity] = useState('1')
-  const [remembered, setRemembered] = useState(false)
+  const [portion, setPortion] = useState(initialPortion)
+  const [quantity, setQuantity] = useState(String(Math.round(initialQuantity * 10_000) / 10_000))
+  const [remembered, setRemembered] = useState(Boolean(entry))
   const [saving, setSaving] = useState(false)
   const lastEntry = useLiveQuery(() => nutritionRepository.getLastFoodLog(food.food.id), [food.food.id], null)
   const serving = food.servings.find((item) => item.id === portion) ?? food.servings[0]
@@ -98,24 +109,26 @@ function FoodLogSheet({ food, date, meal, onEdit, onClose }: { food: FoodDetails
     setQuantity(String(Math.round(nextQuantity * 100) / 100))
   }
 
-  async function log() {
+  async function save() {
     if (amount <= 0) return
     setSaving(true)
     try {
-      await nutritionRepository.logFood({ date, meal: selectedMeal, foodId: food.food.id, servingId: amountUnit === 'serving' ? portion : undefined, quantity: amount, amountUnit })
-      onClose()
+      const input = { date, meal: selectedMeal, foodId: food.food.id, servingId: amountUnit === 'serving' ? portion : undefined, quantity: amount, amountUnit }
+      if (entry) await nutritionRepository.updateFoodLog(entry.id, input)
+      else await nutritionRepository.logFood(input)
+      onSaved()
     } finally {
       setSaving(false)
     }
   }
 
-  return <Sheet onClose={onClose} title="Log food">
+  return <Sheet onClose={onBack} title={entry ? 'Edit logged food' : 'Log food'}>
     <div className="rounded-2xl bg-slate-800/65 p-4"><p className="text-base font-semibold text-slate-100">{food.food.name}</p><p className="mt-1 text-xs text-slate-500">{food.food.brand || foodSourceLabels[food.food.source]}</p><div className="mt-4 grid grid-cols-4 gap-2">{[['kcal', food.nutrients.ENERGY_KCAL * factor], ['protein', food.nutrients.PROTEIN * factor], ['carbs', food.nutrients.CARBOHYDRATE * factor], ['fat', food.nutrients.TOTAL_FAT * factor]].map(([label, value]) => <div key={label as string}><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label as string}</p><p className="mt-1 text-sm font-semibold text-slate-200">{Math.round(Number(value) * 10) / 10}</p></div>)}</div></div>
     <label className="field-label mt-4">Meal<select className="field-input" onChange={(event) => setSelectedMeal(event.target.value as Meal)} value={selectedMeal}>{meals.map((item) => <option key={item.key} value={item.key}>{item.title}</option>)}</select></label>
     <div className="mt-3 grid grid-cols-2 gap-3"><label className="field-label">Amount<input className="field-input" inputMode="decimal" min="0.01" onChange={(event) => { setRemembered(true); setQuantity(event.target.value) }} step="any" type="number" value={quantity} /></label><label className="field-label">Unit<select className="field-input" onChange={(event) => selectPortion(event.target.value)} value={portion}><option value="g">Grams (g)</option><option value="oz">Ounces (oz)</option>{food.servings.map((item) => <option key={item.id} value={item.id}>{item.quantity !== 1 ? `${item.quantity} ` : ''}{item.name}{item.grams ? ` (${item.grams} g)` : ''}</option>)}</select></label></div>
     <p className="mt-2 text-xs text-slate-500">{Math.round(grams * 10) / 10} g selected · nutrition updates automatically</p>
     {onEdit && food.food.source === 'CUSTOM' && <button className="button-quiet mt-3" onClick={() => onEdit(food)}>Edit custom food</button>}
-    <button className="button-primary mt-5 w-full" disabled={saving || amount <= 0} onClick={() => void log()}>{saving ? 'Logging…' : 'Log food'}</button>
+    <button className="button-primary mt-5 w-full" disabled={saving || amount <= 0} onClick={() => void save()}>{saving ? 'Saving…' : entry ? 'Save changes' : 'Log food'}</button>
   </Sheet>
 }
 
@@ -157,7 +170,7 @@ function BarcodeSourceSheet({ barcode, loading, matches, onChoose, onManual, onC
   })}</div><button className="button-secondary mt-3 w-full" onClick={onManual} type="button"><Plus className="size-4" />Enter manually instead</button></Sheet>
 }
 
-function FoodSearchSheet({ onClose, onSelect }: { onClose: () => void; onSelect: (food: FoodDetails) => void }) {
+function FoodSearchSheet({ hidden, onClose, onSelect }: { hidden?: boolean; onClose: () => void; onSelect: (food: FoodDetails) => void }) {
   const [tab, setTab] = useState<'all' | 'favorites' | 'custom'>('all')
   const [query, setQuery] = useState('')
   const [usdaResults, setUsdaResults] = useState<FoodSearchResult[]>([])
@@ -269,7 +282,7 @@ function FoodSearchSheet({ onClose, onSelect }: { onClose: () => void; onSelect:
       }
     }
   }
-  return <Sheet fullHeight onClose={onClose} title="Add food">
+  return <Sheet fullHeight hidden={hidden} onClose={onClose} title="Add food">
     <div className="food-search-row"><div className="food-search-field"><Search aria-hidden="true" /><input aria-label={placeholder} className="field-input" onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} type="search" value={query} /></div><button aria-label="Scan barcode" className="food-barcode-button" disabled={barcodeLoading} onClick={() => setScanning(true)}><Barcode aria-hidden="true" /></button></div>
     <div aria-label="Food list" className="food-search-tabs" role="tablist">{(['all', 'favorites', 'custom'] as const).map((item) => <button aria-selected={tab === item} className={`food-search-tab ${tab === item ? 'food-search-tab-active' : ''}`} key={item} onClick={() => setTab(item)} role="tab" type="button">{item === 'all' ? 'All' : item === 'favorites' ? 'Favorites' : 'Custom'}</button>)}</div>
     <button className="button-quiet mt-2" onClick={() => setCustomBarcode('')}><Plus className="size-4" />Create custom food</button>
@@ -292,6 +305,7 @@ export function NutritionPage() {
   const [meal, setMeal] = useState<Meal | undefined>()
   const [selectedFood, setSelectedFood] = useState<FoodDetails | undefined>()
   const [editingFood, setEditingFood] = useState<FoodDetails | undefined>()
+  const [editingLog, setEditingLog] = useState<FoodLogEntry | undefined>()
   const [summaryMode, setSummaryMode] = useState<'consumed' | 'remaining'>('consumed')
   const [showBreakdown, setShowBreakdown] = useState(false)
   const [expandedMeals, setExpandedMeals] = useState<Set<Meal>>(new Set())
@@ -315,6 +329,8 @@ export function NutritionPage() {
 
   function openMeal(mealKey: Meal) {
     setExpandedMeals((current) => new Set(current).add(mealKey))
+    setEditingLog(undefined)
+    setSelectedFood(undefined)
     setMeal(mealKey)
   }
 
@@ -329,6 +345,21 @@ export function NutritionPage() {
 
   function openQuickSearch() {
     openMeal(quickMeal)
+  }
+
+  async function openLoggedFood(entry: FoodLogEntry) {
+    const food = await nutritionRepository.getFoodDetails(entry.foodId)
+    if (!food) return
+    setMeal(undefined)
+    setEditingLog(entry)
+    setSelectedFood(food)
+  }
+
+  function closeFoodFlow() {
+    setEditingFood(undefined)
+    setEditingLog(undefined)
+    setSelectedFood(undefined)
+    setMeal(undefined)
   }
 
   const macroItems = [
@@ -379,7 +410,10 @@ export function NutritionPage() {
 
     <div className="nutrition-food-heading">
       <h2>Food Log</h2>
-      <Link aria-label="Edit nutrition goals" to="/settings"><Settings /></Link>
+      <div className="nutrition-food-actions">
+        <button aria-label="Search for a food" className="nutrition-heading-action" onClick={openQuickSearch}><Search /></button>
+        <Link aria-label="Edit nutrition goals" className="nutrition-heading-action" to="/settings"><Settings /></Link>
+      </div>
     </div>
 
     <div className="nutrition-meals">
@@ -399,8 +433,10 @@ export function NutritionPage() {
           </div>
           {expanded && <div className="nutrition-meal-entries">
             {entries.length ? entries.map((entry) => <div className="food-log-row" key={entry.id}>
-              <span className="min-w-0 flex-1"><strong>{String(entry.foodSnapshot.name ?? 'Food')}</strong><small>{entry.servingQuantity} {entry.servingUnit}</small></span>
-              <span className="text-right text-sm font-semibold text-slate-300">{entry.calories} Cal<small>{entry.protein}g protein</small></span>
+              <button aria-label={`Edit logged ${String(entry.foodSnapshot.name ?? 'food')}`} className="food-log-edit" onClick={() => void openLoggedFood(entry)}>
+                <span className="min-w-0 flex-1"><strong>{String(entry.foodSnapshot.name ?? 'Food')}</strong><small>{entry.servingQuantity} {entry.servingUnit}</small></span>
+                <span className="text-right text-sm font-semibold text-slate-300">{entry.calories} Cal<small>{entry.protein}g protein</small></span>
+              </button>
               <button aria-label={`Delete ${String(entry.foodSnapshot.name ?? 'food')}`} className="set-delete-button" onClick={() => { if (window.confirm('Delete this food entry?')) void nutritionRepository.deleteFoodLog(entry.id) }}><Trash2 className="size-4" /></button>
             </div>) : <p className="nutrition-meal-empty">No foods logged yet.</p>}
           </div>}
@@ -408,13 +444,8 @@ export function NutritionPage() {
       })}
     </div>
 
-    <div className="nutrition-search-dock">
-      <button onClick={openQuickSearch}><Search /><span>Search for a food</span></button>
-      <button aria-label="Scan a food barcode" onClick={openQuickSearch}><Camera /></button>
-    </div>
-
-    {meal && !selectedFood && <FoodSearchSheet onClose={() => setMeal(undefined)} onSelect={setSelectedFood} />}
-    {meal && selectedFood && <FoodLogSheet date={key} food={selectedFood} meal={meal} onEdit={setEditingFood} onClose={() => { setSelectedFood(undefined); setMeal(undefined) }} />}
-    {editingFood && <CustomFoodSheet existing={editingFood} onClose={() => setEditingFood(undefined)} onCreated={(food) => { setEditingFood(undefined); setSelectedFood(food) }} onDeleted={() => { setEditingFood(undefined); setSelectedFood(undefined); setMeal(undefined) }} />}
+    {meal && <FoodSearchSheet hidden={Boolean(selectedFood)} onClose={closeFoodFlow} onSelect={setSelectedFood} />}
+    {selectedFood && (meal || editingLog) && <FoodLogSheet date={editingLog?.date ?? key} entry={editingLog} food={selectedFood} key={editingLog?.id ?? selectedFood.food.id} meal={editingLog?.meal ?? meal!} onBack={() => { if (editingLog) closeFoodFlow(); else setSelectedFood(undefined) }} onEdit={setEditingFood} onSaved={closeFoodFlow} />}
+    {editingFood && <CustomFoodSheet existing={editingFood} onClose={() => setEditingFood(undefined)} onCreated={(food) => { setEditingFood(undefined); setSelectedFood(food) }} onDeleted={closeFoodFlow} />}
   </div>
 }

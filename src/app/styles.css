@@ -380,16 +380,13 @@ button { cursor: pointer; }
 .schedule-row small { display: block; margin-top: 0.14rem; color: #71809a; font-size: 0.72rem; }
 .schedule-select { width: auto; max-width: 55%; min-height: 2.5rem; padding: 0.35rem 1.8rem 0.35rem 0.55rem; color: #cbd5e1; font-size: 0.77rem; }
 
-.modal-backdrop { position: fixed; z-index: 60; top: var(--visual-viewport-top, 0); right: 0; bottom: auto; left: 0; display: flex; height: var(--visual-viewport-height, 100dvh); align-items: end; justify-content: center; padding: 0; background: rgba(3, 7, 18, 0.72); backdrop-filter: blur(5px); }
-.modal-panel { display: flex; width: min(100%, 34rem); max-height: min(84dvh, calc(var(--visual-viewport-height, 100dvh) - 0.5rem)); flex-direction: column; border: 1px solid rgba(255, 255, 255, 0.11); border-bottom: 0; border-radius: 1.65rem 1.65rem 0 0; background: #18181b; box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.35); }
+.modal-backdrop { position: fixed; z-index: 60; inset: 0; display: flex; height: var(--stable-viewport-height, 100dvh); align-items: end; justify-content: center; padding: 0; overflow: hidden; background: rgba(3, 7, 18, 0.72); backdrop-filter: blur(5px); }
+.modal-backdrop.modal-hidden { display: none; }
+.modal-panel { display: flex; width: min(100%, 34rem); max-height: min(var(--stable-modal-max-height, 84dvh), calc(var(--stable-viewport-height, 100dvh) - 0.5rem)); flex-direction: column; border: 1px solid rgba(255, 255, 255, 0.11); border-bottom: 0; border-radius: 1.65rem 1.65rem 0 0; background: #18181b; box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.35); transform: translate3d(0, 0, 0); transition: max-height 180ms cubic-bezier(0.22, 1, 0.36, 1), transform 180ms cubic-bezier(0.22, 1, 0.36, 1); will-change: max-height, transform; }
 .modal-header { flex: 0 0 auto; }
 .modal-scroll { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scroll-padding-block: 1rem 5rem; -webkit-overflow-scrolling: touch; }
-.keyboard-open body { overflow: hidden; }
-.keyboard-open .modal-backdrop { height: var(--visual-viewport-height, 100dvh); align-items: flex-end; padding-top: 0; }
-.keyboard-open .modal-panel { height: auto; max-height: calc(var(--visual-viewport-height, 100dvh) - max(0.5rem, env(safe-area-inset-top))); box-shadow: 0 5rem 0 #18181b, 0 -20px 60px rgba(0, 0, 0, 0.35); }
+.keyboard-open .modal-panel { height: auto; max-height: calc(var(--stable-viewport-height, 100dvh) - var(--keyboard-occluded-height, 0px) - max(0.5rem, env(safe-area-inset-top))); box-shadow: 0 5rem 0 #18181b, 0 -20px 60px rgba(0, 0, 0, 0.35); transform: translate3d(0, calc(-1 * var(--keyboard-occluded-height, 0px)), 0); }
 .keyboard-open .modal-scroll { scroll-padding-bottom: 2rem; }
-.keyboard-open .bottom-nav { display: none; }
-.keyboard-open .app-main { padding-bottom: calc(2rem + env(safe-area-inset-bottom)); }
 .modal-backdrop.persistent-modal-backdrop { top: 0; height: var(--stable-viewport-height, 100dvh); align-items: stretch; padding: 0; }
 .modal-panel.persistent-modal-panel { width: min(100%, 34rem); height: var(--stable-viewport-height, 100dvh); max-height: var(--stable-viewport-height, 100dvh); border: 0; border-radius: 0; }
 .persistent-modal-panel .modal-header { padding-top: max(1.25rem, env(safe-area-inset-top)); }
@@ -397,7 +394,7 @@ button { cursor: pointer; }
 .keyboard-reflow-modal .persistent-modal-panel::before { display: none; }
 .keyboard-open .keyboard-reflow-modal .modal-scroll { padding-bottom: calc(var(--keyboard-occluded-height, 0px) + 1.25rem); scroll-padding-bottom: calc(var(--keyboard-occluded-height, 0px) + 1.25rem); }
 .keyboard-open .modal-backdrop.persistent-modal-backdrop { top: 0; height: var(--stable-viewport-height, 100dvh); align-items: stretch; padding: 0; }
-.keyboard-open .modal-panel.persistent-modal-panel { height: var(--stable-viewport-height, 100dvh); max-height: var(--stable-viewport-height, 100dvh); }
+.keyboard-open .modal-panel.persistent-modal-panel { height: var(--stable-viewport-height, 100dvh); max-height: var(--stable-viewport-height, 100dvh); transform: none; }
 .picker-row { display: flex; width: 100%; min-height: 3.9rem; align-items: center; gap: 0.75rem; border: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding: 0.65rem 0.8rem; color: inherit; background: rgba(24, 24, 27, 0.7); }
 .picker-row:last-child { border-bottom: 0; }
 .picker-row:hover { background: rgba(82, 167, 255, 0.09); }
@@ -439,7 +436,8 @@ button { cursor: pointer; }
 
 .history-row { border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 1rem; background: #18181b; }
 
-.nutrition-page { display: flex; flex-direction: column; gap: 1rem; padding-top: max(0.65rem, env(safe-area-inset-top)); }
+.nutrition-page { display: flex; flex-direction: column; gap: 1rem; padding-top: max(0.65rem, env(safe-area-inset-top)); animation: nutrition-page-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes nutrition-page-enter { from { opacity: 0; transform: translateY(0.45rem); } to { opacity: 1; transform: translateY(0); } }
 .nutrition-date-row { display: grid; min-height: 3.2rem; align-items: center; grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem; gap: 0.65rem; }
 .nutrition-date-row h1 { overflow: hidden; margin: 0; color: #d4d4d8; font-size: 1rem; font-weight: 600; letter-spacing: -0.02em; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .nutrition-date-button { display: grid; width: 2.75rem; height: 2.75rem; place-items: center; border: 0; border-radius: 50%; color: #e4e4e7; background: transparent; transition: color 150ms ease, background 150ms ease; }
@@ -473,8 +471,10 @@ button { cursor: pointer; }
 
 .nutrition-food-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 0.35rem; }
 .nutrition-food-heading h2 { margin: 0; color: #f4f4f5; font-size: 1.45rem; font-weight: 700; letter-spacing: -0.04em; }
-.nutrition-food-heading a { display: grid; width: 2.45rem; height: 2.45rem; place-items: center; border-radius: 50%; color: #d4d4d8; transition: color 150ms ease, background 150ms ease; }
-.nutrition-food-heading a:hover { color: #8fc8ff; background: rgba(82, 167, 255, 0.08); }
+.nutrition-food-actions { display: flex; align-items: center; gap: 0.25rem; }
+.nutrition-heading-action { display: grid; width: 2.45rem; height: 2.45rem; place-items: center; border: 0; border-radius: 50%; padding: 0; color: #d4d4d8; background: transparent; transition: color 150ms ease, background 150ms ease, transform 150ms ease; }
+.nutrition-heading-action:hover { color: #8fc8ff; background: rgba(82, 167, 255, 0.08); }
+.nutrition-heading-action:active { transform: scale(0.94); }
 .nutrition-food-heading svg { width: 1.25rem; }
 .nutrition-meals { display: flex; flex-direction: column; gap: 0.65rem; }
 .nutrition-meal-card { overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.045); border-radius: 1.2rem; background: #1b1b1f; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.11); }
@@ -490,14 +490,6 @@ button { cursor: pointer; }
 .nutrition-meal-add svg { width: 1.65rem; }
 .nutrition-meal-entries { border-top: 1px solid rgba(255, 255, 255, 0.06); padding: 0.15rem 0.9rem 0.4rem; }
 .nutrition-meal-empty { margin: 0; padding: 0.9rem 0; color: #71717a; font-size: 0.78rem; text-align: center; }
-.nutrition-search-dock { position: sticky; z-index: 10; bottom: calc(4.9rem + env(safe-area-inset-bottom)); display: grid; min-height: 4rem; align-items: center; grid-template-columns: minmax(0, 1fr) 3.25rem; gap: 0.25rem; border: 1px solid rgba(255, 255, 255, 0.045); border-radius: 999px; padding: 0.4rem 0.5rem 0.4rem 1rem; background: rgba(27, 27, 31, 0.96); box-shadow: 0 15px 38px rgba(0, 0, 0, 0.28); backdrop-filter: blur(16px); }
-.nutrition-search-dock button { display: flex; min-width: 0; min-height: 3rem; align-items: center; gap: 0.85rem; border: 0; padding: 0; color: #d4d4d8; background: transparent; text-align: left; }
-.nutrition-search-dock button:first-child svg { width: 1.45rem; flex: 0 0 auto; color: #5aa8ff; }
-.nutrition-search-dock button span { overflow: hidden; font-size: 0.98rem; text-overflow: ellipsis; white-space: nowrap; }
-.nutrition-search-dock button:last-child { justify-content: center; border-radius: 50%; color: #5aa8ff; }
-.nutrition-search-dock button:last-child:hover { background: rgba(82, 167, 255, 0.08); }
-.nutrition-search-dock button:last-child svg { width: 1.45rem; }
-
 .meal-card, .chart-card, .settings-card {
   border: 1px solid rgba(255, 255, 255, 0.075);
   border-radius: 1.25rem;
@@ -550,6 +542,8 @@ button { cursor: pointer; }
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 .food-log-row { padding: 0.4rem 0; }
+.food-log-edit { display: flex; min-width: 0; min-height: 2.75rem; flex: 1; align-items: center; gap: 0.65rem; border: 0; border-radius: 0.7rem; padding: 0.2rem 0.3rem; background: transparent; text-align: left; transition: background 150ms ease; }
+.food-log-edit:hover { background: rgba(82, 167, 255, 0.07); }
 .food-result { padding: 0.55rem 0.85rem; }
 .food-log-row:last-child, .food-result:last-child { border-bottom: 0; }
 .food-log-row strong, .food-result strong { display: block; overflow: hidden; color: #e8edf5; font-size: 0.82rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
@@ -568,6 +562,8 @@ button { cursor: pointer; }
 .food-barcode-button:active { transform: scale(0.98); }
 .food-star { display: grid; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; place-items: center; border: 0; border-radius: 0.65rem; color: #64748b; background: transparent; }
 .food-star:hover, .food-star-active { color: #fcd34d; background: rgba(250, 204, 21, 0.08); }
+
+@media (prefers-reduced-motion: reduce) { .nutrition-page { animation: none; } }
 .result-empty { margin: 0; padding: 0.85rem; color: #71809a; font-size: 0.78rem; line-height: 1.2rem; }
 
 .range-button { min-height: 1.75rem; border: 0; border-radius: 0.45rem; padding: 0.2rem 0.45rem; color: #71809a; background: transparent; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; }

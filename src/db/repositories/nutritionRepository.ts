@@ -50,10 +50,41 @@ export interface DayNutrition {
 
 export type FoodAmountUnit = 'serving' | 'g' | 'oz'
 
+export interface FoodLogInput {
+  date: string
+  meal: Meal
+  foodId: string
+  servingId?: string
+  quantity: number
+  amountUnit?: FoodAmountUnit
+}
+
 export const GRAMS_PER_OUNCE = 28.349523125
 
 function normalized(name: string) {
   return name.trim().toLocaleLowerCase()
+}
+
+function buildFoodLogEntry(details: FoodDetails, input: FoodLogInput, id: string, createdAt: string, updatedAt: string): FoodLogEntry {
+  const serving = details.servings.find((item) => item.id === input.servingId) ?? details.servings.find((item) => item.id === details.food.defaultServingId) ?? details.servings[0]
+  const quantity = Math.max(0.01, input.quantity)
+  const amountUnit = input.amountUnit ?? 'serving'
+  const grams = amountUnit === 'g'
+    ? quantity
+    : amountUnit === 'oz'
+      ? quantity * GRAMS_PER_OUNCE
+      : serving?.grams ? serving.grams * quantity : 100 * quantity
+  const displayQuantity = amountUnit === 'serving' ? quantity * Math.max(serving?.quantity ?? 1, 0.01) : quantity
+  const servingUnit = amountUnit === 'g' ? 'g' : amountUnit === 'oz' ? 'oz' : serving?.name ?? '100 g'
+  const factor = grams / 100
+  return {
+    id, date: input.date, meal: input.meal, foodId: details.food.id,
+    foodSnapshot: { name: details.food.name, brand: details.food.brand, source: details.food.source, servingName: serving?.name ?? '100 g' },
+    servingQuantity: displayQuantity, servingUnit, grams,
+    calories: Math.round(details.nutrients.ENERGY_KCAL * factor), protein: Math.round(details.nutrients.PROTEIN * factor * 10) / 10,
+    carbs: Math.round(details.nutrients.CARBOHYDRATE * factor * 10) / 10, fat: Math.round(details.nutrients.TOTAL_FAT * factor * 10) / 10,
+    createdAt, updatedAt
+  }
 }
 
 export function calculateDayTotals(entries: FoodLogEntry[]): MacroValues {
@@ -243,32 +274,21 @@ export const nutritionRepository = {
     return mapping ? nutritionRepository.getFoodDetails(mapping.foodId) : undefined
   },
 
-  async logFood(input: { date: string; meal: Meal; foodId: string; servingId?: string; quantity: number; amountUnit?: FoodAmountUnit }): Promise<void> {
+  async logFood(input: FoodLogInput): Promise<void> {
     const details = await nutritionRepository.getFoodDetails(input.foodId)
     if (!details) throw new Error('This food is no longer available.')
-    const serving = details.servings.find((item) => item.id === input.servingId) ?? details.servings.find((item) => item.id === details.food.defaultServingId) ?? details.servings[0]
-    const quantity = Math.max(0.01, input.quantity)
-    const amountUnit = input.amountUnit ?? 'serving'
-    const grams = amountUnit === 'g'
-      ? quantity
-      : amountUnit === 'oz'
-        ? quantity * GRAMS_PER_OUNCE
-        : serving?.grams ? serving.grams * quantity : 100 * quantity
-    const displayQuantity = amountUnit === 'serving' ? quantity * Math.max(serving?.quantity ?? 1, 0.01) : quantity
-    const servingUnit = amountUnit === 'g' ? 'g' : amountUnit === 'oz' ? 'oz' : serving?.name ?? '100 g'
-    const factor = grams / 100
     const timestamp = now()
-    const entry: FoodLogEntry = {
-      id: newId(), date: input.date, meal: input.meal, foodId: details.food.id,
-      foodSnapshot: { name: details.food.name, brand: details.food.brand, source: details.food.source, servingName: serving?.name ?? '100 g' },
-      servingQuantity: displayQuantity, servingUnit, grams,
-      calories: Math.round(details.nutrients.ENERGY_KCAL * factor), protein: Math.round(details.nutrients.PROTEIN * factor * 10) / 10,
-      carbs: Math.round(details.nutrients.CARBOHYDRATE * factor * 10) / 10, fat: Math.round(details.nutrients.TOTAL_FAT * factor * 10) / 10,
-      createdAt: timestamp, updatedAt: timestamp
-    }
+    const entry = buildFoodLogEntry(details, input, newId(), timestamp, timestamp)
     const existingRecent = await db.recentFoods.get(details.food.id)
     const recent: FoodReference = existingRecent ? { ...existingRecent, updatedAt: timestamp } : { id: details.food.id, foodId: details.food.id, createdAt: timestamp, updatedAt: timestamp }
     await db.transaction('rw', db.foodLogs, db.recentFoods, async () => { await db.foodLogs.add(entry); await db.recentFoods.put(recent) })
+  },
+
+  async updateFoodLog(id: string, input: FoodLogInput): Promise<void> {
+    const [existing, details] = await Promise.all([db.foodLogs.get(id), nutritionRepository.getFoodDetails(input.foodId)])
+    if (!existing) throw new Error('This food log entry no longer exists.')
+    if (!details) throw new Error('This food is no longer available.')
+    await db.foodLogs.put(buildFoodLogEntry(details, input, existing.id, existing.createdAt, now()))
   },
 
   async getDayNutrition(date: string): Promise<DayNutrition> {

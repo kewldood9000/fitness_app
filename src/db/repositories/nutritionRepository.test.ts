@@ -78,4 +78,16 @@ describe('food amount units', () => {
 
     expect(await nutritionRepository.getLastFoodLog(foodId)).toMatchObject({ servingQuantity: 82, servingUnit: 'g', grams: 82 })
   })
+
+  it('edits an existing food log without creating a second entry', async () => {
+    const foodId = await nutritionRepository.createCustomFood({ name: 'Rice', servingName: 'cup', servingQuantity: 1, servingGrams: 200, macros })
+    await nutritionRepository.logFood({ date: '2026-08-25', meal: 'dinner', foodId, quantity: 100, amountUnit: 'g' })
+    const original = (await db.foodLogs.toArray())[0]
+
+    await nutritionRepository.updateFoodLog(original.id, { date: original.date, meal: 'lunch', foodId, quantity: 82, amountUnit: 'g' })
+
+    const entries = await db.foodLogs.toArray()
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ id: original.id, meal: 'lunch', servingQuantity: 82, servingUnit: 'g', grams: 82, calories: 41, protein: 4.1, createdAt: original.createdAt })
+  })
 })
