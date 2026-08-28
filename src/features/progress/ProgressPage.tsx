@@ -1,4 +1,3 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { ArrowDown, ArrowUp, BarChart3, ChevronDown, Minus, Plus, Scale, Trash2, X } from 'lucide-react'
 import { useId, useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -7,6 +6,7 @@ import { latestPreviousDayChange, progressRepository, weeklyAverage, weightHisto
 import { settingsRepository } from '@/db/repositories/settingsRepository'
 import { workoutRepository } from '@/db/repositories/workoutRepository'
 import { useIncrementalItems } from '@/hooks/useIncrementalItems'
+import { useCachedLiveQuery } from '@/hooks/useCachedLiveQuery'
 import { calculateWeightGoalProgress, convertWeight, plannedGoalDate, plannedWeightForDate, type ProgressGoalSettings } from '@/utils/calorieEstimator'
 import { addDays, toDateKey } from '@/utils/dates'
 
@@ -47,11 +47,11 @@ export function ProgressPage() {
   const [logging, setLogging] = useState(false)
   const [showWeightHistory, setShowWeightHistory] = useState(false)
   const [selectedExerciseId, setSelectedExerciseId] = useState('')
-  const logs = useLiveQuery(() => progressRepository.getWeightLogs(), [])
-  const goalsSetting = useLiveQuery(() => settingsRepository.get('progress-goals'), [])
-  const workoutSetting = useLiveQuery(() => settingsRepository.get('workout-preferences'), [])
-  const exercises = useLiveQuery(() => workoutRepository.getExercises(), [])
-  const strength = useLiveQuery(() => selectedExerciseId ? progressRepository.getStrengthProgress(selectedExerciseId) : Promise.resolve([]), [selectedExerciseId])
+  const logs = useCachedLiveQuery('progress:weight-logs', () => progressRepository.getWeightLogs(), [])
+  const goalsSetting = useCachedLiveQuery('setting:progress-goals', () => settingsRepository.get('progress-goals'), [])
+  const workoutSetting = useCachedLiveQuery('setting:workout-preferences', () => settingsRepository.get('workout-preferences'), [])
+  const exercises = useCachedLiveQuery('workout:exercises', () => workoutRepository.getExercises(), [])
+  const strength = useCachedLiveQuery(`progress:strength:${selectedExerciseId || 'none'}`, () => selectedExerciseId ? progressRepository.getStrengthProgress(selectedExerciseId) : Promise.resolve([]), [selectedExerciseId])
   const goals = (goalsSetting?.value as ProgressGoalSettings | undefined) ?? {}
   const preferredUnit = (workoutSetting?.value as { unit?: 'lb' | 'kg' } | undefined)?.unit ?? 'lb'
   const current = logs?.at(-1)

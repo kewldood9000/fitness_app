@@ -1,8 +1,8 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { Download, KeyRound, RotateCcw, Upload, WifiOff } from 'lucide-react'
 import { type ChangeEvent, type ReactNode, useState } from 'react'
 import { credentialRepository } from '@/db/repositories/credentialRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
+import { useCachedLiveQuery } from '@/hooks/useCachedLiveQuery'
 import { FATSECRET_PROXY_URL_KEY } from '@/services/foodSources/fatSecret/FatSecretAdapter'
 import { CalorieGoalSettings } from './CalorieGoalSettings'
 import { createBackup, downloadBackup, replaceWithBackup, summarizeBackup, validateBackup } from '@/services/backup/backupService'
@@ -65,11 +65,11 @@ function BackupRestore() {
 }
 
 export function SettingsPage() {
-  const nutritionSetting = useLiveQuery(() => settingsRepository.get('nutrition-goals'), [])
-  const workoutSetting = useLiveQuery(() => settingsRepository.get('workout-preferences'), [])
-  const nameSetting = useLiveQuery(() => settingsRepository.get('preferred-name'), [])
-  const credential = useLiveQuery(() => credentialRepository.get('usda-api-key'), [])
-  const fatSecretProxy = useLiveQuery(() => credentialRepository.get(FATSECRET_PROXY_URL_KEY), [])
+  const nutritionSetting = useCachedLiveQuery('setting:nutrition-goals', () => settingsRepository.get('nutrition-goals'), [])
+  const workoutSetting = useCachedLiveQuery('setting:workout-preferences', () => settingsRepository.get('workout-preferences'), [])
+  const nameSetting = useCachedLiveQuery('setting:preferred-name', () => settingsRepository.get('preferred-name'), [])
+  const credential = useCachedLiveQuery('credential:usda-api-key', () => credentialRepository.get('usda-api-key'), [])
+  const fatSecretProxy = useCachedLiveQuery(`credential:${FATSECRET_PROXY_URL_KEY}`, () => credentialRepository.get(FATSECRET_PROXY_URL_KEY), [])
   const nutrition = (nutritionSetting?.value as NutritionGoals | undefined) ?? {}
   const workout = (workoutSetting?.value as WorkoutPrefs | undefined) ?? {}
 

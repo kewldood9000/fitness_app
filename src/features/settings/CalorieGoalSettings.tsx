@@ -1,8 +1,8 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { Calculator, Check, Info } from 'lucide-react'
 import { useState } from 'react'
 import { lastCompletedWeekAverage, progressRepository, type CompletedWeekAverage } from '@/db/repositories/progressRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
+import { useCachedLiveQuery } from '@/hooks/useCachedLiveQuery'
 import type { WeightUnit } from '@/types/models'
 import {
   activityLevels,
@@ -163,7 +163,7 @@ function CalorieGoalForm({ profile, nutrition, progress, unit, calculationWeek, 
 }
 
 export function CalorieGoalSettings() {
-  const data = useLiveQuery(async () => {
+  const data = useCachedLiveQuery('settings:calorie-goal-data', async () => {
     const [profileSetting, nutritionSetting, progressSetting, workoutSetting, weights] = await Promise.all([
       settingsRepository.get('body-profile'),
       settingsRepository.get('nutrition-goals'),
@@ -172,7 +172,7 @@ export function CalorieGoalSettings() {
       progressRepository.getWeightLogs()
     ])
     return { profileSetting, nutritionSetting, progressSetting, workoutSetting, weights, earliestWeight: weights[0], latestWeight: weights.at(-1) }
-  }, [], null)
+  }, [])
   if (!data) return <section className="settings-card"><p className="text-sm text-zinc-500">Loading calorie goal setup…</p></section>
   const unit = ((data.workoutSetting?.value as { unit?: WeightUnit } | undefined)?.unit ?? 'lb')
   const calculationWeek = lastCompletedWeekAverage(data.weights, toDateKey(new Date()), unit)

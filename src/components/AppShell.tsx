@@ -2,6 +2,7 @@ import { ChartLine, Dumbbell, House, Settings, Utensils } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { AppLogo } from './AppLogo'
+import { preloadRoute } from '@/app/routeLoaders'
 
 interface AppShellProps {
   children: ReactNode
@@ -157,7 +158,7 @@ export function AppShell({ children }: AppShellProps) {
               onClick={() => window.setTimeout(() => setPendingPath(undefined), 400)}
               onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setPendingPath(to) }}
               onPointerCancel={() => setPendingPath(undefined)}
-              onPointerDown={() => setPendingPath(to)}
+              onPointerDown={() => { preloadRoute(to); setPendingPath(to) }}
             >
               <Icon className="size-5" strokeWidth={2.1} />
               <span>{label}</span>

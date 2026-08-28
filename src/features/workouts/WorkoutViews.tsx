@@ -25,6 +25,7 @@ import { LoadMoreButton } from '@/components/LoadMoreButton'
 import { workoutRepository, type PreviousPerformance, type SessionExerciseDetails } from '@/db/repositories/workoutRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
 import { useIncrementalItems } from '@/hooks/useIncrementalItems'
+import { useCachedLiveQuery } from '@/hooks/useCachedLiveQuery'
 import type { Exercise, PlannedWorkoutSet, WorkoutSet, WorkoutTemplateExercise } from '@/types/models'
 import { formatLongDate } from '@/utils/dates'
 
@@ -188,10 +189,10 @@ function ExerciseForm({ exercise, onSaved, onCancel }: { exercise?: Exercise; on
 
 export function WorkoutHubPage() {
   const navigate = useNavigate()
-  const activeSession = useLiveQuery(() => workoutRepository.getActiveSession(), [])
-  const templates = useLiveQuery(() => workoutRepository.getTemplates(), [])
-  const schedule = useLiveQuery(() => workoutRepository.getSchedule(), [])
-  const quickSetting = useLiveQuery(() => settingsRepository.get('quick-workout-template'), [])
+  const activeSession = useCachedLiveQuery('workout:active-session', () => workoutRepository.getActiveSession(), [])
+  const templates = useCachedLiveQuery('workout:templates', () => workoutRepository.getTemplates(), [])
+  const schedule = useCachedLiveQuery('workout:schedule', () => workoutRepository.getSchedule(), [])
+  const quickSetting = useCachedLiveQuery('setting:quick-workout-template', () => settingsRepository.get('quick-workout-template'), [])
   const today = new Date()
   const scheduled = (schedule ?? []).find((item) => item.weekday === today.getDay())
   const scheduledTemplate = (templates ?? []).find((template) => template.id === scheduled?.templateId)

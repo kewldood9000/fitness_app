@@ -488,7 +488,11 @@ button { cursor: pointer; }
 .nutrition-meal-add { display: grid; width: 2.7rem; height: 2.45rem; place-items: center; border: 0; border-radius: 50%; color: #62adff; background: transparent; transition: color 150ms ease, background 150ms ease; }
 .nutrition-meal-add:hover { color: #b9dfff; background: rgba(82, 167, 255, 0.09); }
 .nutrition-meal-add svg { width: 1.65rem; }
+.nutrition-meal-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 120ms ease, visibility 0s linear 180ms; }
+.nutrition-meal-collapse-open { grid-template-rows: 1fr; opacity: 1; visibility: visible; transition: grid-template-rows 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 120ms ease, visibility 0s linear 0s; }
+.nutrition-meal-collapse-inner { min-height: 0; overflow: hidden; }
 .nutrition-meal-entries { border-top: 1px solid rgba(255, 255, 255, 0.06); padding: 0.15rem 0.9rem 0.4rem; }
+.nutrition-meal-end { height: 1px; }
 .nutrition-meal-empty { margin: 0; padding: 0.9rem 0; color: #71717a; font-size: 0.78rem; text-align: center; }
 .meal-card, .chart-card, .settings-card {
   border: 1px solid rgba(255, 255, 255, 0.075);
@@ -563,7 +567,7 @@ button { cursor: pointer; }
 .food-star { display: grid; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; place-items: center; border: 0; border-radius: 0.65rem; color: #64748b; background: transparent; }
 .food-star:hover, .food-star-active { color: #fcd34d; background: rgba(250, 204, 21, 0.08); }
 
-@media (prefers-reduced-motion: reduce) { .nutrition-page { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .nutrition-page { animation: none; } .nutrition-meal-collapse, .nutrition-meal-collapse-open { transition: none; } }
 .result-empty { margin: 0; padding: 0.85rem; color: #71809a; font-size: 0.78rem; line-height: 1.2rem; }
 
 .range-button { min-height: 1.75rem; border: 0; border-radius: 0.45rem; padding: 0.2rem 0.45rem; color: #71809a; background: transparent; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; }

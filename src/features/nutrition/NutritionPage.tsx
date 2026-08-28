@@ -5,8 +5,10 @@ import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { BarcodeScanner } from '@/features/barcode/BarcodeScanner'
 import { LoadMoreButton } from '@/components/LoadMoreButton'
+import { PageLoading } from '@/components/PageLoading'
 import { GRAMS_PER_OUNCE, nutritionRepository, type FoodAmountUnit, type FoodDetails, type MacroValues } from '@/db/repositories/nutritionRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
+import { useCachedLiveQueryState } from '@/hooks/useCachedLiveQuery'
 import { lookupBarcodeAcrossSources } from '@/services/foodSources/barcodeLookupService'
 import { foodSourceLabels, type ExternalFood } from '@/services/foodSources/FoodSourceAdapter'
 import { usdaAdapter } from '@/services/foodSources/usda/UsdaFoodSourceAdapter'
@@ -309,9 +311,13 @@ export function NutritionPage() {
   const [summaryMode, setSummaryMode] = useState<'consumed' | 'remaining'>('consumed')
   const [showBreakdown, setShowBreakdown] = useState(false)
   const [expandedMeals, setExpandedMeals] = useState<Set<Meal>>(new Set())
+  const mealEndRefs = useRef(new Map<Meal, HTMLDivElement>())
+  const mealRevealTimer = useRef<number | undefined>(undefined)
   const key = toDateKey(date)
-  const day = useLiveQuery(() => nutritionRepository.getDayNutrition(key), [key])
-  const setting = useLiveQuery(() => settingsRepository.get('nutrition-goals'), [])
+  const dayState = useCachedLiveQueryState(`nutrition-day:${key}`, () => nutritionRepository.getDayNutrition(key), [key])
+  const settingState = useCachedLiveQueryState('setting:nutrition-goals', () => settingsRepository.get('nutrition-goals'), [])
+  const day = dayState.value
+  const setting = settingState.value
   const goals = (setting?.value as Goals | undefined) ?? {}
   const totals = day?.totals ?? emptyMacros()
   const isToday = key === toDateKey(new Date())
@@ -335,12 +341,25 @@ export function NutritionPage() {
   }
 
   function toggleMeal(mealKey: Meal) {
+    const opening = !expandedMeals.has(mealKey)
     setExpandedMeals((current) => {
       const next = new Set(current)
       if (next.has(mealKey)) next.delete(mealKey)
       else next.add(mealKey)
       return next
     })
+    if (opening) {
+      window.clearTimeout(mealRevealTimer.current)
+      mealRevealTimer.current = window.setTimeout(() => {
+        const anchor = mealEndRefs.current.get(mealKey)
+        if (!anchor) return
+        const viewportBottom = (window.visualViewport?.offsetTop ?? 0) + (window.visualViewport?.height ?? window.innerHeight)
+        const navigationTop = document.querySelector<HTMLElement>('.bottom-nav')?.getBoundingClientRect().top ?? viewportBottom
+        const visibleBottom = Math.min(viewportBottom, navigationTop) - 12
+        const hiddenBy = anchor.getBoundingClientRect().bottom - visibleBottom
+        if (hiddenBy > 0) window.scrollBy({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', top: hiddenBy })
+      }, 210)
+    }
   }
 
   function openQuickSearch() {
@@ -367,6 +386,10 @@ export function NutritionPage() {
     { key: 'carbs', label: 'Carbs', value: totals.CARBOHYDRATE, target: goals.carbs, color: 'mint' },
     { key: 'fat', label: 'Fat', value: totals.TOTAL_FAT, target: goals.fat, color: 'amber' }
   ] as const
+
+  useEffect(() => () => window.clearTimeout(mealRevealTimer.current), [])
+
+  if (dayState.loading || settingState.loading) return <PageLoading />
 
   return <div className="nutrition-page pb-3 pt-2">
     <section className="nutrition-date-row" aria-label="Selected nutrition date">
@@ -431,15 +454,20 @@ export function NutritionPage() {
             <div className="nutrition-meal-totals"><span>{Math.round(kcal)} Cal</span><span>{formatMacro(protein)} P</span></div>
             <button aria-label={`Add food to ${title}`} className="nutrition-meal-add" onClick={() => openMeal(mealKey)}><Plus /></button>
           </div>
-          {expanded && <div className="nutrition-meal-entries">
-            {entries.length ? entries.map((entry) => <div className="food-log-row" key={entry.id}>
-              <button aria-label={`Edit logged ${String(entry.foodSnapshot.name ?? 'food')}`} className="food-log-edit" onClick={() => void openLoggedFood(entry)}>
-                <span className="min-w-0 flex-1"><strong>{String(entry.foodSnapshot.name ?? 'Food')}</strong><small>{entry.servingQuantity} {entry.servingUnit}</small></span>
-                <span className="text-right text-sm font-semibold text-slate-300">{entry.calories} Cal<small>{entry.protein}g protein</small></span>
-              </button>
-              <button aria-label={`Delete ${String(entry.foodSnapshot.name ?? 'food')}`} className="set-delete-button" onClick={() => { if (window.confirm('Delete this food entry?')) void nutritionRepository.deleteFoodLog(entry.id) }}><Trash2 className="size-4" /></button>
-            </div>) : <p className="nutrition-meal-empty">No foods logged yet.</p>}
-          </div>}
+          <div aria-hidden={!expanded} className={`nutrition-meal-collapse ${expanded ? 'nutrition-meal-collapse-open' : ''}`}>
+            <div className="nutrition-meal-collapse-inner">
+              <div className="nutrition-meal-entries">
+                {entries.length ? entries.map((entry) => <div className="food-log-row" key={entry.id}>
+                  <button aria-label={`Edit logged ${String(entry.foodSnapshot.name ?? 'food')}`} className="food-log-edit" onClick={() => void openLoggedFood(entry)}>
+                    <span className="min-w-0 flex-1"><strong>{String(entry.foodSnapshot.name ?? 'Food')}</strong><small>{entry.servingQuantity} {entry.servingUnit}</small></span>
+                    <span className="text-right text-sm font-semibold text-slate-300">{entry.calories} Cal<small>{entry.protein}g protein</small></span>
+                  </button>
+                  <button aria-label={`Delete ${String(entry.foodSnapshot.name ?? 'food')}`} className="set-delete-button" onClick={() => { if (window.confirm('Delete this food entry?')) void nutritionRepository.deleteFoodLog(entry.id) }}><Trash2 className="size-4" /></button>
+                </div>) : <p className="nutrition-meal-empty">No foods logged yet.</p>}
+                <div aria-hidden="true" className="nutrition-meal-end" ref={(node) => { if (node) mealEndRefs.current.set(mealKey, node); else mealEndRefs.current.delete(mealKey) }} />
+              </div>
+            </div>
+          </div>
         </section>
       })}
     </div>
