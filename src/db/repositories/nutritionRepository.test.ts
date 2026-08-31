@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '@/db/database'
-import { calculateDayTotals, nutritionRepository, type MacroValues } from './nutritionRepository'
+import { calculateDayTotals, foodDisplayName, formatFoodLogAmount, nutritionRepository, type MacroValues } from './nutritionRepository'
 import type { FoodLogEntry } from '@/types/models'
 
 const macros: MacroValues = { ENERGY_KCAL: 100, PROTEIN: 10, CARBOHYDRATE: 10, TOTAL_FAT: 2, FIBER: 1, TOTAL_SUGAR: 1, SODIUM: 50 }
@@ -43,6 +43,27 @@ describe('food picker lists', () => {
 
     expect(fatSecretId).not.toBe(openFoodFactsId)
     expect((await db.foods.toArray()).map((food) => food.source).sort()).toEqual(['FATSECRET', 'OPEN_FOOD_FACTS'])
+  })
+
+  it('keeps a local external-food name and its database identity through refreshes', async () => {
+    const foodId = await nutritionRepository.cacheExternalFood({ source: 'OPEN_FOOD_FACTS', sourceFoodId: 'ramen-123', name: 'Artificial Pork Flavor', barcode: '00123', nutrients: macros })
+    await nutritionRepository.logFood({ date: '2026-08-25', meal: 'dinner', foodId, quantity: 1, amountUnit: 'serving' })
+
+    await nutritionRepository.setFoodDisplayName(foodId, 'Ramen noodles')
+    await nutritionRepository.cacheExternalFood({ source: 'OPEN_FOOD_FACTS', sourceFoodId: 'ramen-123', name: 'Artificial Pork Flavor', barcode: '00123', nutrients: macros })
+
+    const details = await nutritionRepository.getFoodDetails(foodId)
+    expect(details?.food).toMatchObject({ source: 'OPEN_FOOD_FACTS', sourceFoodId: 'ramen-123', name: 'Artificial Pork Flavor', displayName: 'Ramen noodles', barcode: '00123' })
+    expect(foodDisplayName(details!.food)).toBe('Ramen noodles')
+    expect((await db.foodLogs.toArray())[0].foodSnapshot.name).toBe('Ramen noodles')
+  })
+})
+
+describe('food log amount labels', () => {
+  it('removes repeated serving quantities and shows the gram equivalent', () => {
+    expect(formatFoodLogAmount({ servingQuantity: 1, servingUnit: '1 slice', grams: 19 })).toBe('1 slice (19 g)')
+    expect(formatFoodLogAmount({ servingQuantity: 2, servingUnit: '1 slice', grams: 38 })).toBe('2 slices (38 g)')
+    expect(formatFoodLogAmount({ servingQuantity: 82, servingUnit: 'g', grams: 82 })).toBe('82 g')
   })
 })
 

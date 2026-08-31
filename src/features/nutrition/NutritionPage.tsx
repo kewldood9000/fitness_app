@@ -1,12 +1,12 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Barcode, ChevronDown, ChevronLeft, ChevronRight, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
+import { Barcode, Check, ChevronDown, ChevronLeft, ChevronRight, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { BarcodeScanner } from '@/features/barcode/BarcodeScanner'
 import { LoadMoreButton } from '@/components/LoadMoreButton'
 import { PageLoading } from '@/components/PageLoading'
-import { GRAMS_PER_OUNCE, nutritionRepository, type FoodAmountUnit, type FoodDetails, type MacroValues } from '@/db/repositories/nutritionRepository'
+import { foodDisplayName, formatFoodLogAmount, GRAMS_PER_OUNCE, nutritionRepository, type FoodAmountUnit, type FoodDetails, type MacroValues } from '@/db/repositories/nutritionRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
 import { useCachedLiveQueryState } from '@/hooks/useCachedLiveQuery'
 import { lookupBarcodeAcrossSources } from '@/services/foodSources/barcodeLookupService'
@@ -27,7 +27,8 @@ function Sheet({ title, onClose, children, fullHeight = false, hidden = false, k
 }
 
 function ResultRow({ food, onPick }: { food: FoodDetails; onPick: (food: FoodDetails) => void }) {
-  return <div className="food-result"><button className="min-w-0 flex-1 text-left" onClick={() => onPick(food)}><strong>{food.food.name}</strong><small>{food.food.brand ? `${food.food.brand} · ` : ''}{foodSourceLabels[food.food.source]} · {Math.round(food.nutrients.ENERGY_KCAL)} kcal/100g</small></button><button aria-label={food.favorite ? `Unfavorite ${food.food.name}` : `Favorite ${food.food.name}`} className={`food-star ${food.favorite ? 'food-star-active' : ''}`} onClick={() => void nutritionRepository.setFavorite(food.food.id, !food.favorite)}><Star className="size-4" /></button></div>
+  const name = foodDisplayName(food.food)
+  return <div className="food-result"><button className="min-w-0 flex-1 text-left" onClick={() => onPick(food)}><strong>{name}</strong><small>{food.food.brand ? `${food.food.brand} · ` : ''}{foodSourceLabels[food.food.source]} · {Math.round(food.nutrients.ENERGY_KCAL)} kcal/100g</small></button><button aria-label={food.favorite ? `Unfavorite ${name}` : `Favorite ${name}`} className={`food-star ${food.favorite ? 'food-star-active' : ''}`} onClick={() => void nutritionRepository.setFavorite(food.food.id, !food.favorite)}><Star className={`size-4 ${food.favorite ? 'fill-current' : ''}`} /></button></div>
 }
 
 async function cacheExternalFood(food: ExternalFood): Promise<FoodDetails | undefined> {
@@ -64,13 +65,19 @@ function FoodLogSheet({ entry, food, date, meal, onEdit, onBack, onSaved }: { en
     : 1
   const [selectedMeal, setSelectedMeal] = useState(meal)
   const [portion, setPortion] = useState(initialPortion)
-  const [quantity, setQuantity] = useState(String(Math.round(initialQuantity * 10_000) / 10_000))
+  const [quantity, setQuantity] = useState('')
+  const [fallbackQuantity, setFallbackQuantity] = useState(initialQuantity)
   const [remembered, setRemembered] = useState(Boolean(entry))
   const [saving, setSaving] = useState(false)
+  const [favorite, setFavorite] = useState(food.favorite)
+  const [shownName, setShownName] = useState(foodDisplayName(food.food))
+  const [renaming, setRenaming] = useState(false)
+  const [nameDraft, setNameDraft] = useState(foodDisplayName(food.food))
+  const [renameError, setRenameError] = useState('')
   const lastEntry = useLiveQuery(() => nutritionRepository.getLastFoodLog(food.food.id), [food.food.id], null)
   const serving = food.servings.find((item) => item.id === portion) ?? food.servings[0]
   const amountUnit: FoodAmountUnit = portion === 'g' ? 'g' : portion === 'oz' ? 'oz' : 'serving'
-  const amount = Number(quantity) || 0
+  const amount = quantity.trim() ? Number(quantity) || 0 : fallbackQuantity
   const grams = amountUnit === 'g'
     ? amount
     : amountUnit === 'oz'
@@ -84,18 +91,18 @@ function FoodLogSheet({ entry, food, date, meal, onEdit, onBack, onSaved }: { en
     if (!lastEntry) return
     if ((lastEntry.servingUnit === 'g' || lastEntry.servingUnit === 'oz') && lastEntry.servingQuantity > 0) {
       setPortion(lastEntry.servingUnit)
-      setQuantity(String(Math.round(lastEntry.servingQuantity * 10_000) / 10_000))
+      setFallbackQuantity(lastEntry.servingQuantity)
       return
     }
     const priorServing = food.servings.find((item) => item.name === lastEntry.servingUnit)
     if (priorServing && lastEntry.servingQuantity > 0) {
       setPortion(priorServing.id)
-      setQuantity(String(Math.round((lastEntry.servingQuantity / Math.max(priorServing.quantity, 0.01)) * 10_000) / 10_000))
+      setFallbackQuantity(lastEntry.servingQuantity / Math.max(priorServing.quantity, 0.01))
       return
     }
     if (lastEntry.grams && lastEntry.grams > 0) {
       setPortion('g')
-      setQuantity(String(Math.round(lastEntry.grams * 10_000) / 10_000))
+      setFallbackQuantity(lastEntry.grams)
     }
   }, [food.servings, lastEntry, remembered])
 
@@ -108,7 +115,27 @@ function FoodLogSheet({ entry, food, date, meal, onEdit, onBack, onSaved }: { en
         ? grams / GRAMS_PER_OUNCE
         : nextServing?.grams ? grams / nextServing.grams : amount
     setPortion(nextPortion)
-    setQuantity(String(Math.round(nextQuantity * 100) / 100))
+    if (quantity.trim()) setQuantity(String(Math.round(nextQuantity * 100) / 100))
+    else setFallbackQuantity(nextQuantity)
+  }
+
+  async function toggleFavorite() {
+    const next = !favorite
+    setFavorite(next)
+    try { await nutritionRepository.setFavorite(food.food.id, next) } catch { setFavorite(!next) }
+  }
+
+  async function saveName() {
+    const nextName = nameDraft.trim()
+    if (!nextName) return setRenameError('Enter a food name.')
+    try {
+      await nutritionRepository.setFoodDisplayName(food.food.id, nextName)
+      setShownName(nextName)
+      setRenameError('')
+      setRenaming(false)
+    } catch (error) {
+      setRenameError(error instanceof Error ? error.message : 'Unable to rename this food.')
+    }
   }
 
   async function save() {
@@ -125,10 +152,11 @@ function FoodLogSheet({ entry, food, date, meal, onEdit, onBack, onSaved }: { en
   }
 
   return <Sheet onClose={onBack} title={entry ? 'Edit logged food' : 'Log food'}>
-    <div className="rounded-2xl bg-slate-800/65 p-4"><p className="text-base font-semibold text-slate-100">{food.food.name}</p><p className="mt-1 text-xs text-slate-500">{food.food.brand || foodSourceLabels[food.food.source]}</p><div className="mt-4 grid grid-cols-4 gap-2">{[['kcal', food.nutrients.ENERGY_KCAL * factor], ['protein', food.nutrients.PROTEIN * factor], ['carbs', food.nutrients.CARBOHYDRATE * factor], ['fat', food.nutrients.TOTAL_FAT * factor]].map(([label, value]) => <div key={label as string}><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label as string}</p><p className="mt-1 text-sm font-semibold text-slate-200">{Math.round(Number(value) * 10) / 10}</p></div>)}</div></div>
+    <div className="rounded-2xl bg-slate-800/65 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-base font-semibold text-slate-100">{shownName}</p><p className="mt-1 text-xs text-slate-500">{food.food.brand || foodSourceLabels[food.food.source]}</p></div><div className="-mr-1 -mt-1 flex shrink-0 gap-1"><button aria-label={favorite ? `Unfavorite ${shownName}` : `Favorite ${shownName}`} className={`food-star ${favorite ? 'food-star-active' : ''}`} onClick={() => void toggleFavorite()} type="button"><Star className={`size-5 ${favorite ? 'fill-current' : ''}`} /></button>{food.food.source !== 'CUSTOM' && <button aria-expanded={renaming} aria-label={`Rename ${shownName}`} className={`food-star ${renaming ? 'text-sky-300 bg-sky-300/[0.08]' : ''}`} onClick={() => setRenaming((current) => !current)} type="button"><Settings className="size-5" /></button>}</div></div><div className="mt-4 grid grid-cols-4 gap-2">{[['kcal', food.nutrients.ENERGY_KCAL * factor], ['protein', food.nutrients.PROTEIN * factor], ['carbs', food.nutrients.CARBOHYDRATE * factor], ['fat', food.nutrients.TOTAL_FAT * factor]].map(([label, value]) => <div key={label as string}><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label as string}</p><p className="mt-1 text-sm font-semibold text-slate-200">{Math.round(Number(value) * 10) / 10}</p></div>)}</div></div>
+    {food.food.source !== 'CUSTOM' && renaming && <div className="mt-2 rounded-xl border border-white/[0.07] bg-slate-800/45 p-3"><label className="field-label">Name shown in this app<input aria-label="Food display name" className="field-input" onChange={(event) => setNameDraft(event.target.value)} value={nameDraft} /></label>{renameError && <p className="mt-2 text-xs text-rose-300">{renameError}</p>}<div className="mt-2 flex gap-2"><button className="button-secondary flex-1" onClick={() => { setNameDraft(shownName); setRenameError(''); setRenaming(false) }} type="button">Cancel</button><button className="button-primary flex-1" onClick={() => void saveName()} type="button"><Check className="size-4" />Save name</button></div><p className="mt-2 text-xs leading-5 text-slate-500">This only changes the name shown in Pocket Pace. Barcode and database nutrition remain linked.</p></div>}
     <label className="field-label mt-4">Meal<select className="field-input" onChange={(event) => setSelectedMeal(event.target.value as Meal)} value={selectedMeal}>{meals.map((item) => <option key={item.key} value={item.key}>{item.title}</option>)}</select></label>
-    <div className="mt-3 grid grid-cols-2 gap-3"><label className="field-label">Amount<input className="field-input" inputMode="decimal" min="0.01" onChange={(event) => { setRemembered(true); setQuantity(event.target.value) }} step="any" type="number" value={quantity} /></label><label className="field-label">Unit<select className="field-input" onChange={(event) => selectPortion(event.target.value)} value={portion}><option value="g">Grams (g)</option><option value="oz">Ounces (oz)</option>{food.servings.map((item) => <option key={item.id} value={item.id}>{item.quantity !== 1 ? `${item.quantity} ` : ''}{item.name}{item.grams ? ` (${item.grams} g)` : ''}</option>)}</select></label></div>
-    <p className="mt-2 text-xs text-slate-500">{Math.round(grams * 10) / 10} g selected · nutrition updates automatically</p>
+    <div className="mt-3 grid grid-cols-2 gap-3"><label className="field-label">Amount<input aria-describedby="remembered-food-amount" className="field-input" inputMode="decimal" min="0.01" onChange={(event) => { setRemembered(true); setQuantity(event.target.value) }} placeholder={String(Math.round(fallbackQuantity * 10_000) / 10_000)} step="any" type="number" value={quantity} /></label><label className="field-label">Unit<select className="field-input" onChange={(event) => selectPortion(event.target.value)} value={portion}><option value="g">Grams (g)</option><option value="oz">Ounces (oz)</option>{food.servings.map((item) => <option key={item.id} value={item.id}>{item.quantity !== 1 ? `${item.quantity} ` : ''}{item.name}{item.grams ? ` (${item.grams} g)` : ''}</option>)}</select></label></div>
+    <p className="mt-2 text-xs text-slate-500" id="remembered-food-amount">Leave amount blank to use {Math.round(fallbackQuantity * 10_000) / 10_000}. {Math.round(grams * 10) / 10} g selected · nutrition updates automatically</p>
     {onEdit && food.food.source === 'CUSTOM' && <button className="button-quiet mt-3" onClick={() => onEdit(food)}>Edit custom food</button>}
     <button className="button-primary mt-5 w-full" disabled={saving || amount <= 0} onClick={() => void save()}>{saving ? 'Saving…' : entry ? 'Save changes' : 'Log food'}</button>
   </Sheet>
@@ -188,7 +216,7 @@ function FoodSearchSheet({ hidden, onClose, onSelect }: { hidden?: boolean; onCl
   const recents = useLiveQuery(() => nutritionRepository.getRecents(50), [])
   const customFoods = useLiveQuery(() => nutritionRepository.getCustomFoods(), [])
   const cleanQuery = query.trim().toLocaleLowerCase()
-  const matchesQuery = (food: FoodDetails) => !cleanQuery || [food.food.name, food.food.brand].some((value) => value?.toLocaleLowerCase().includes(cleanQuery))
+  const matchesQuery = (food: FoodDetails) => !cleanQuery || [foodDisplayName(food.food), food.food.name, food.food.brand].some((value) => value?.toLocaleLowerCase().includes(cleanQuery))
   const scopedFoods = tab === 'favorites'
     ? (favorites ?? []).filter(matchesQuery)
     : tab === 'custom'
@@ -459,7 +487,7 @@ export function NutritionPage() {
               <div className="nutrition-meal-entries">
                 {entries.length ? entries.map((entry) => <div className="food-log-row" key={entry.id}>
                   <button aria-label={`Edit logged ${String(entry.foodSnapshot.name ?? 'food')}`} className="food-log-edit" onClick={() => void openLoggedFood(entry)}>
-                    <span className="min-w-0 flex-1"><strong>{String(entry.foodSnapshot.name ?? 'Food')}</strong><small>{entry.servingQuantity} {entry.servingUnit}</small></span>
+                    <span className="min-w-0 flex-1"><strong>{String(entry.foodSnapshot.name ?? 'Food')}</strong><small>{formatFoodLogAmount(entry)}</small></span>
                     <span className="text-right text-sm font-semibold text-slate-300">{entry.calories} Cal<small>{entry.protein}g protein</small></span>
                   </button>
                   <button aria-label={`Delete ${String(entry.foodSnapshot.name ?? 'food')}`} className="set-delete-button" onClick={() => { if (window.confirm('Delete this food entry?')) void nutritionRepository.deleteFoodLog(entry.id) }}><Trash2 className="size-4" /></button>

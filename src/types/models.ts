@@ -30,6 +30,8 @@ export interface Food extends Timestamped {
   source: FoodSource
   sourceFoodId?: string
   name: string
+  /** Optional local label for an externally sourced food. The source name stays intact. */
+  displayName?: string
   normalizedName?: string
   brand?: string
   brandOwner?: string

@@ -65,6 +65,44 @@ function normalized(name: string) {
   return name.trim().toLocaleLowerCase()
 }
 
+export function foodDisplayName(food: Pick<Food, 'displayName' | 'name'>): string {
+  return food.displayName?.trim() || food.name
+}
+
+function formatAmountNumber(value: number): string {
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value)
+}
+
+function pluralizeServingUnit(unit: string): string {
+  const match = unit.match(/^(\S+)(.*)$/)
+  if (!match || /s$/i.test(match[1])) return unit
+  const word = match[1]
+  const plural = /[^aeiou]y$/i.test(word)
+    ? `${word.slice(0, -1)}ies`
+    : /(s|x|z|ch|sh)$/i.test(word) ? `${word}es` : `${word}s`
+  return `${plural}${match[2]}`
+}
+
+export function formatFoodLogAmount(entry: Pick<FoodLogEntry, 'grams' | 'servingQuantity' | 'servingUnit'>): string {
+  const quantity = formatAmountNumber(entry.servingQuantity)
+  const unit = entry.servingUnit.trim() || 'serving'
+  if (unit === 'g' || unit === 'oz') return `${quantity} ${unit}`
+
+  const leadingQuantity = unit.match(/^(\d+(?:\.\d+)?)\s+(.+)$/)
+  let amountLabel = `${quantity} ${unit}`
+  if (leadingQuantity) {
+    const labelQuantity = Number(leadingQuantity[1])
+    const labelUnit = leadingQuantity[2]
+    amountLabel = entry.servingQuantity === 1 || entry.servingQuantity === labelQuantity
+      ? unit
+      : labelQuantity === 1 ? `${quantity} ${entry.servingQuantity === 1 ? labelUnit : pluralizeServingUnit(labelUnit)}` : `${quantity} × ${unit}`
+  }
+
+  const alreadyShowsGrams = /\([^)]*\bg\s*\)$/i.test(amountLabel)
+  const grams = entry.grams && entry.grams > 0 && !alreadyShowsGrams ? ` (${formatAmountNumber(entry.grams)} g)` : ''
+  return `${amountLabel}${grams}`
+}
+
 function buildFoodLogEntry(details: FoodDetails, input: FoodLogInput, id: string, createdAt: string, updatedAt: string): FoodLogEntry {
   const serving = details.servings.find((item) => item.id === input.servingId) ?? details.servings.find((item) => item.id === details.food.defaultServingId) ?? details.servings[0]
   const quantity = Math.max(0.01, input.quantity)
@@ -79,7 +117,7 @@ function buildFoodLogEntry(details: FoodDetails, input: FoodLogInput, id: string
   const factor = grams / 100
   return {
     id, date: input.date, meal: input.meal, foodId: details.food.id,
-    foodSnapshot: { name: details.food.name, brand: details.food.brand, source: details.food.source, servingName: serving?.name ?? '100 g' },
+    foodSnapshot: { name: foodDisplayName(details.food), brand: details.food.brand, source: details.food.source, servingName: serving?.name ?? '100 g' },
     servingQuantity: displayQuantity, servingUnit, grams,
     calories: Math.round(details.nutrients.ENERGY_KCAL * factor), protein: Math.round(details.nutrients.PROTEIN * factor * 10) / 10,
     carbs: Math.round(details.nutrients.CARBOHYDRATE * factor * 10) / 10, fat: Math.round(details.nutrients.TOTAL_FAT * factor * 10) / 10,
@@ -166,6 +204,29 @@ export const nutritionRepository = {
     await db.favorites.put(reference)
   },
 
+  async setFoodDisplayName(foodId: string, displayName: string): Promise<void> {
+    const food = await db.foods.get(foodId)
+    if (!food) throw new Error('This food is no longer available.')
+    const cleanName = displayName.trim()
+    if (!cleanName) throw new Error('Enter a food name.')
+    const timestamp = now()
+    const localName = food.source !== 'CUSTOM' && cleanName !== food.name ? cleanName : undefined
+    const shownName = localName ?? (food.source === 'CUSTOM' ? cleanName : food.name)
+    await db.transaction('rw', db.foods, db.foodLogs, async () => {
+      await db.foods.put({
+        ...food,
+        ...(food.source === 'CUSTOM' ? { name: cleanName } : {}),
+        displayName: localName,
+        normalizedName: normalized(shownName),
+        updatedAt: timestamp
+      })
+      await db.foodLogs.where('foodId').equals(foodId).modify((entry) => {
+        entry.foodSnapshot = { ...entry.foodSnapshot, name: shownName }
+        entry.updatedAt = timestamp
+      })
+    })
+  },
+
   async createCustomFood(input: CustomFoodInput): Promise<string> {
     const timestamp = now()
     const foodId = newId()
@@ -250,7 +311,7 @@ export const nutritionRepository = {
     const servingId = existing?.defaultServingId ?? newId()
     const grams = input.servingGrams && input.servingGrams > 0 ? input.servingGrams : 100
     const food: Food = {
-      id: foodId, source: input.source, sourceFoodId: input.sourceFoodId, name: input.name, normalizedName: normalized(input.name), brand: input.brand, brandOwner: input.brandOwner, brandName: input.brandName,
+      id: foodId, source: input.source, sourceFoodId: input.sourceFoodId, name: input.name, displayName: existing?.displayName, normalizedName: normalized(existing?.displayName ?? input.name), brand: input.brand, brandOwner: input.brandOwner, brandName: input.brandName,
       barcode: input.barcode, ingredients: input.ingredients, publicationDate: input.publicationDate, lastFetchedAt: timestamp, defaultServingId: servingId, createdAt: existing?.createdAt ?? timestamp, updatedAt: timestamp
     }
     const serving: Serving = { id: servingId, foodId, name: input.servingName || '100 g', grams, quantity: 1, createdAt: existing?.createdAt ?? timestamp, updatedAt: timestamp }
