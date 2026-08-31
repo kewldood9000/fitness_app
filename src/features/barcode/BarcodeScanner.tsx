@@ -1,5 +1,6 @@
 import { Camera, Flashlight, Keyboard, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { applyBarcodeCameraProfile } from './cameraProfile'
 
 interface NativeBarcodeDetector {
   detect(source: ImageBitmapSource): Promise<Array<{ rawValue: string }>>
@@ -40,6 +41,7 @@ export function BarcodeScanner({ onDetected, onClose }: BarcodeScannerProps) {
           video.srcObject = stream
           await video.play()
           const track = stream.getVideoTracks()[0]
+          if (track) await applyBarcodeCameraProfile(track)
           const capabilities = track?.getCapabilities?.() as MediaTrackCapabilities & { torch?: boolean }
           setTorchAvailable(Boolean(capabilities?.torch))
           const detector = new window.BarcodeDetector({ formats })
@@ -75,6 +77,12 @@ export function BarcodeScanner({ onDetected, onClose }: BarcodeScannerProps) {
             onDetected(value)
           }
         })
+        const fallbackTrack = (videoRef.current?.srcObject as MediaStream | null)?.getVideoTracks()[0]
+        if (fallbackTrack) {
+          await applyBarcodeCameraProfile(fallbackTrack)
+          const capabilities = fallbackTrack.getCapabilities?.() as MediaTrackCapabilities & { torch?: boolean }
+          setTorchAvailable(Boolean(capabilities?.torch))
+        }
         cleanupRef.current = () => controls.stop()
       } catch (scanError) {
         const message = scanError instanceof Error ? scanError.message : 'Unable to open the camera.'
