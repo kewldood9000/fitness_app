@@ -49,7 +49,7 @@ async function cacheExternalFood(food: ExternalFood): Promise<FoodDetails | unde
   return nutritionRepository.getFoodDetails(id)
 }
 
-function MacroInput({ label, name, defaultValue = 0 }: { label: string; name: string; defaultValue?: number }) { return <label className="field-label text-[10px] uppercase tracking-[0.08em] text-slate-500">{label}<input className="compact-field mt-1" defaultValue={defaultValue} inputMode="decimal" min="0" name={name} step="0.1" type="number" /></label> }
+function MacroInput({ label, name, placeholderValue = 0 }: { label: string; name: string; placeholderValue?: number }) { return <label className="field-label text-[10px] uppercase tracking-[0.08em] text-slate-500">{label}<input className="compact-field mt-1" inputMode="decimal" min="0" name={name} placeholder={String(placeholderValue)} step="0.1" type="number" /></label> }
 
 function FoodLogSheet({ entry, food, date, meal, onEdit, onBack, onSaved }: { entry?: FoodLogEntry; food: FoodDetails; date: string; meal: Meal; onEdit?: (food: FoodDetails) => void; onBack: () => void; onSaved: () => void }) {
   const loggedServing = entry ? food.servings.find((item) => item.name === entry.servingUnit) : undefined
@@ -169,14 +169,21 @@ function CustomFoodSheet({ barcode, existing, onCreated, onDeleted, onClose }: {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    const name = String(form.get('name') ?? '').trim()
-    const servingWeight = Number(form.get('servingWeight') ?? 0)
+    const textValue = (field: string, fallback = '') => String(form.get(field) ?? '').trim() || fallback
+    const numberValue = (field: string, fallback: number) => {
+      const raw = String(form.get(field) ?? '').trim()
+      const parsed = raw ? Number(raw) : fallback
+      return Number.isFinite(parsed) ? parsed : fallback
+    }
+    const name = textValue('name', existing?.food.name ?? '')
+    const servingWeightRaw = String(form.get('servingWeight') ?? '').trim()
+    const servingWeight = numberValue('servingWeight', grams)
     const servingWeightUnit = String(form.get('servingWeightUnit') ?? 'g')
-    const servingGrams = servingWeightUnit === 'oz' ? servingWeight * GRAMS_PER_OUNCE : servingWeight
+    const servingGrams = !servingWeightRaw ? grams : servingWeightUnit === 'oz' ? servingWeight * GRAMS_PER_OUNCE : servingWeight
     if (!name || !servingGrams) return setError('Enter a food name and serving weight.')
     const macros = emptyMacros()
-    macros.ENERGY_KCAL = Number(form.get('calories') ?? 0); macros.PROTEIN = Number(form.get('protein') ?? 0); macros.CARBOHYDRATE = Number(form.get('carbs') ?? 0); macros.TOTAL_FAT = Number(form.get('fat') ?? 0); macros.FIBER = Number(form.get('fiber') ?? 0); macros.TOTAL_SUGAR = Number(form.get('sugar') ?? 0); macros.SODIUM = Number(form.get('sodium') ?? 0)
-    const input = { name, brand: String(form.get('brand') ?? ''), barcode: String(form.get('barcode') ?? ''), servingName: String(form.get('servingName') ?? 'serving'), servingQuantity: Number(form.get('servingQuantity') ?? 1), servingGrams, macros, ingredients: String(form.get('ingredients') ?? ''), notes: String(form.get('notes') ?? '') }
+    macros.ENERGY_KCAL = numberValue('calories', macro('ENERGY_KCAL')); macros.PROTEIN = numberValue('protein', macro('PROTEIN')); macros.CARBOHYDRATE = numberValue('carbs', macro('CARBOHYDRATE')); macros.TOTAL_FAT = numberValue('fat', macro('TOTAL_FAT')); macros.FIBER = numberValue('fiber', macro('FIBER')); macros.TOTAL_SUGAR = numberValue('sugar', macro('TOTAL_SUGAR')); macros.SODIUM = numberValue('sodium', macro('SODIUM'))
+    const input = { name, brand: textValue('brand', existing?.food.brand ?? ''), barcode: textValue('barcode', existing?.food.barcode ?? barcode ?? ''), servingName: textValue('servingName', existingServing?.name ?? 'serving'), servingQuantity: numberValue('servingQuantity', existingServing?.quantity ?? 1), servingGrams, macros, ingredients: textValue('ingredients', existing?.food.ingredients ?? ''), notes: textValue('notes', existing?.food.notes ?? '') }
     const foodId = existing ? existing.food.id : await nutritionRepository.createCustomFood(input)
     if (existing) await nutritionRepository.updateCustomFood(foodId, input)
     const details = await nutritionRepository.getFoodDetails(foodId)
@@ -188,7 +195,7 @@ function CustomFoodSheet({ barcode, existing, onCreated, onDeleted, onClose }: {
       onDeleted?.()
     }
   }
-  return <Sheet fullHeight keyboardReflow onClose={onClose} title={existing ? 'Edit custom food' : 'Custom food'}><form className="space-y-3" onSubmit={(event) => void submit(event)}><label className="field-label">Food name<input className="field-input" defaultValue={existing?.food.name} name="name" placeholder="e.g. Protein shake" /></label><div className="grid grid-cols-2 gap-3"><label className="field-label">Brand<input className="field-input" defaultValue={existing?.food.brand} name="brand" placeholder="Optional" /></label><label className="field-label">Barcode<input className="field-input" defaultValue={existing?.food.barcode ?? barcode} inputMode="numeric" name="barcode" placeholder="Optional" /></label></div><div className="grid grid-cols-2 gap-3"><label className="field-label">Label serving name<input className="field-input" defaultValue={existingServing?.name ?? 'serving'} name="servingName" placeholder="e.g. 1 cup" /></label><label className="field-label">Label serving qty<input className="field-input" defaultValue={existingServing?.quantity ?? 1} inputMode="decimal" min="0.01" name="servingQuantity" step="any" type="number" /></label></div><div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3"><label className="field-label">Serving weight<input className="field-input" defaultValue={grams} inputMode="decimal" min="0.01" name="servingWeight" step="any" type="number" /></label><label className="field-label">Unit<select className="field-input" defaultValue="g" name="servingWeightUnit"><option value="g">grams</option><option value="oz">ounces</option></select></label></div><p className="text-xs leading-5 text-slate-500">Enter calories and macros exactly as shown for this label serving. You can log any gram or ounce amount later.</p><div className="grid grid-cols-4 gap-2"><MacroInput defaultValue={macro('ENERGY_KCAL')} label="Kcal" name="calories" /><MacroInput defaultValue={macro('PROTEIN')} label="Protein" name="protein" /><MacroInput defaultValue={macro('CARBOHYDRATE')} label="Carbs" name="carbs" /><MacroInput defaultValue={macro('TOTAL_FAT')} label="Fat" name="fat" /></div><details className="rounded-xl bg-slate-800/60 px-3 py-2"><summary className="cursor-pointer text-sm font-semibold text-slate-300">More nutrients & notes</summary><div className="mt-3 grid grid-cols-3 gap-2"><MacroInput defaultValue={macro('FIBER')} label="Fiber g" name="fiber" /><MacroInput defaultValue={macro('TOTAL_SUGAR')} label="Sugar g" name="sugar" /><MacroInput defaultValue={macro('SODIUM')} label="Sodium mg" name="sodium" /></div><label className="field-label mt-3">Ingredients<textarea className="field-input min-h-18" defaultValue={existing?.food.ingredients} name="ingredients" /></label><label className="field-label mt-3">Notes<textarea className="field-input min-h-18" defaultValue={existing?.food.notes} name="notes" /></label></details>{error && <p className="text-sm text-rose-300">{error}</p>}<button className="button-primary w-full" type="submit">{existing ? 'Save changes' : 'Save custom food'}</button>{existing && <button className="button-danger-outline w-full" type="button" onClick={() => void remove()}>Delete custom food</button>}</form></Sheet>
+  return <Sheet fullHeight keyboardReflow onClose={onClose} title={existing ? 'Edit custom food' : 'Custom food'}><form className="space-y-3" onSubmit={(event) => void submit(event)}><label className="field-label">Food name<input className="field-input" name="name" placeholder={existing?.food.name ?? 'e.g. Protein shake'} /></label><div className="grid grid-cols-2 gap-3"><label className="field-label">Brand<input className="field-input" name="brand" placeholder={existing?.food.brand ?? 'Optional'} /></label><label className="field-label">Barcode<input className="field-input" inputMode="numeric" name="barcode" placeholder={existing?.food.barcode || barcode || 'Optional'} /></label></div><div className="grid grid-cols-2 gap-3"><label className="field-label">Label serving name<input className="field-input" name="servingName" placeholder={existingServing?.name ?? 'serving'} /></label><label className="field-label">Label serving qty<input className="field-input" inputMode="decimal" min="0.01" name="servingQuantity" placeholder={String(existingServing?.quantity ?? 1)} step="any" type="number" /></label></div><div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3"><label className="field-label">Serving weight<input className="field-input" inputMode="decimal" min="0.01" name="servingWeight" placeholder={String(grams)} step="any" type="number" /></label><label className="field-label">Unit<select className="field-input" defaultValue="g" name="servingWeightUnit"><option value="g">grams</option><option value="oz">ounces</option></select></label></div><p className="text-xs leading-5 text-slate-500">Enter calories and macros exactly as shown for this label serving. You can log any gram or ounce amount later.</p><div className="grid grid-cols-4 gap-2"><MacroInput label="Kcal" name="calories" placeholderValue={macro('ENERGY_KCAL')} /><MacroInput label="Protein" name="protein" placeholderValue={macro('PROTEIN')} /><MacroInput label="Carbs" name="carbs" placeholderValue={macro('CARBOHYDRATE')} /><MacroInput label="Fat" name="fat" placeholderValue={macro('TOTAL_FAT')} /></div><details className="rounded-xl bg-slate-800/60 px-3 py-2"><summary className="cursor-pointer text-sm font-semibold text-slate-300">More nutrients & notes</summary><div className="mt-3 grid grid-cols-3 gap-2"><MacroInput label="Fiber g" name="fiber" placeholderValue={macro('FIBER')} /><MacroInput label="Sugar g" name="sugar" placeholderValue={macro('TOTAL_SUGAR')} /><MacroInput label="Sodium mg" name="sodium" placeholderValue={macro('SODIUM')} /></div><label className="field-label mt-3">Ingredients<textarea className="field-input min-h-18" name="ingredients" placeholder={existing?.food.ingredients ?? 'Optional ingredients'} /></label><label className="field-label mt-3">Notes<textarea className="field-input min-h-18" name="notes" placeholder={existing?.food.notes ?? 'Optional notes'} /></label></details>{error && <p className="text-sm text-rose-300">{error}</p>}<button className="button-primary w-full" type="submit">{existing ? 'Save changes' : 'Save custom food'}</button>{existing && <button className="button-danger-outline w-full" type="button" onClick={() => void remove()}>Delete custom food</button>}</form></Sheet>
 }
 
 function BarcodeSourceSheet({ barcode, loading, matches, onChoose, onManual, onClose }: { barcode: string; loading: boolean; matches: ExternalFood[]; onChoose: (food: ExternalFood) => void; onManual: () => void; onClose: () => void }) {
@@ -359,6 +366,11 @@ export function NutritionPage() {
   const formatMacro = (value: number) => Math.round(value * 10) / 10
   const caloriePercent = percentage(totals.ENERGY_KCAL, goals.calories)
   const displayedCalories = Math.round(shown(totals.ENERGY_KCAL, goals.calories))
+  const calorieStatus = goals.calories && goals.calories > 0
+    ? totals.ENERGY_KCAL > goals.calories
+      ? 'nutrition-calorie-total-over'
+      : totals.ENERGY_KCAL >= goals.calories - 20 ? 'nutrition-calorie-total-on-target' : ''
+    : ''
 
   function openMeal(mealKey: Meal) {
     setExpandedMeals((current) => new Set(current).add(mealKey))
@@ -431,7 +443,7 @@ export function NutritionPage() {
         <button aria-pressed={summaryMode === 'remaining'} className={summaryMode === 'remaining' ? 'active' : ''} onClick={() => setSummaryMode('remaining')}>Remaining</button>
       </div>
 
-      <div className="nutrition-calorie-total">
+      <div className={`nutrition-calorie-total ${calorieStatus}`}>
         <strong>{displayedCalories}</strong>
         <span>/ {goals.calories ?? '—'} kcal</span>
       </div>
