@@ -8,7 +8,7 @@ const macros: MacroValues = { ENERGY_KCAL: 100, PROTEIN: 10, CARBOHYDRATE: 10, T
 
 beforeEach(async () => {
   await db.open()
-  await Promise.all([db.foods.clear(), db.servings.clear(), db.foodNutrients.clear(), db.favorites.clear(), db.recentFoods.clear(), db.foodLogs.clear(), db.barcodeMappings.clear()])
+  await Promise.all([db.foods.clear(), db.servings.clear(), db.foodNutrients.clear(), db.favorites.clear(), db.recentFoods.clear(), db.foodLogs.clear(), db.barcodeMappings.clear(), db.savedMeals.clear(), db.savedMealItems.clear()])
 })
 
 function entry(values: Pick<FoodLogEntry, 'calories' | 'protein' | 'carbs' | 'fat'>): FoodLogEntry {
@@ -110,5 +110,30 @@ describe('food amount units', () => {
     const entries = await db.foodLogs.toArray()
     expect(entries).toHaveLength(1)
     expect(entries[0]).toMatchObject({ id: original.id, meal: 'lunch', servingQuantity: 82, servingUnit: 'g', grams: 82, calories: 41, protein: 4.1, createdAt: original.createdAt })
+  })
+})
+
+describe('saved meals', () => {
+  it('keeps suggested component weights separate from the actual logged weights', async () => {
+    const rice = await nutritionRepository.createCustomFood({ name: 'Rice', servingName: 'serving', servingQuantity: 1, servingGrams: 100, macros })
+    const chicken = await nutritionRepository.createCustomFood({ name: 'Chicken', servingName: 'serving', servingQuantity: 1, servingGrams: 100, macros: { ...macros, ENERGY_KCAL: 200 } })
+    const savedMealId = await nutritionRepository.createSavedMeal({ name: 'Burrito bowl', items: [{ foodId: rice, defaultGrams: 200 }, { foodId: chicken, defaultGrams: 150 }] })
+
+    expect((await nutritionRepository.getSavedMealDetails(savedMealId))?.items.map((item) => item.defaultGrams)).toEqual([200, 150])
+    await nutritionRepository.logFoods([{ date: '2026-08-25', meal: 'dinner', foodId: rice, quantity: 180, amountUnit: 'g' }, { date: '2026-08-25', meal: 'dinner', foodId: chicken, quantity: 120, amountUnit: 'g' }])
+
+    expect((await db.foodLogs.toArray()).map((item) => item.grams).sort((a, b) => a! - b!)).toEqual([120, 180])
+    expect((await nutritionRepository.getSavedMealDetails(savedMealId))?.items.map((item) => item.defaultGrams)).toEqual([200, 150])
+  })
+
+  it('updates a saved meal in place', async () => {
+    const rice = await nutritionRepository.createCustomFood({ name: 'Rice', servingName: 'serving', servingQuantity: 1, servingGrams: 100, macros })
+    const beans = await nutritionRepository.createCustomFood({ name: 'Beans', servingName: 'serving', servingQuantity: 1, servingGrams: 100, macros })
+    const savedMealId = await nutritionRepository.createSavedMeal({ name: 'Bowl', items: [{ foodId: rice, defaultGrams: 200 }] })
+
+    await nutritionRepository.updateSavedMeal(savedMealId, { name: 'Burrito bowl', notes: 'Meal prep', items: [{ foodId: rice, defaultGrams: 180 }, { foodId: beans, defaultGrams: 90 }] })
+
+    expect(await nutritionRepository.getSavedMealDetails(savedMealId)).toMatchObject({ meal: { id: savedMealId, name: 'Burrito bowl', notes: 'Meal prep' } })
+    expect((await nutritionRepository.getSavedMealDetails(savedMealId))?.items.map((item) => item.defaultGrams)).toEqual([180, 90])
   })
 })

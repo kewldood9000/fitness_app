@@ -4,6 +4,7 @@ import { BACKUP_FORMAT, BACKUP_VERSION, type BackupDataStore, type FitnessBackup
 
 const exportStores: BackupDataStore[] = [
   'settings', 'metadata', 'foods', 'nutrients', 'foodNutrients', 'servings', 'barcodeMappings', 'favorites', 'recentFoods', 'foodLogs',
+  'savedMeals', 'savedMealItems',
   'exercises', 'workoutTemplates', 'workoutTemplateExercises', 'workoutSchedules', 'workoutSessions', 'workoutSessionExercises', 'workoutSets', 'weightLogs'
 ]
 

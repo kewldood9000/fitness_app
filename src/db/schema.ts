@@ -30,4 +30,10 @@ export const schemaV2 = {
 
 export const schemaV3 = { ...schemaV2 } as const
 
-export type TableName = keyof typeof schemaV3
+export const schemaV4 = {
+  ...schemaV3,
+  savedMeals: '&id, name, updatedAt',
+  savedMealItems: '&id, savedMealId, foodId, [savedMealId+order]'
+} as const
+
+export type TableName = keyof typeof schemaV4

@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom'
 import { BarcodeScanner } from '@/features/barcode/BarcodeScanner'
 import { LoadMoreButton } from '@/components/LoadMoreButton'
 import { PageLoading } from '@/components/PageLoading'
-import { foodDisplayName, formatFoodLogAmount, GRAMS_PER_OUNCE, nutritionRepository, type FoodAmountUnit, type FoodDetails, type MacroValues } from '@/db/repositories/nutritionRepository'
+import { foodDisplayName, formatFoodLogAmount, GRAMS_PER_OUNCE, nutritionRepository, type FoodAmountUnit, type FoodDetails, type MacroValues, type SavedMealDetails } from '@/db/repositories/nutritionRepository'
 import { settingsRepository } from '@/db/repositories/settingsRepository'
 import { useCachedLiveQueryState } from '@/hooks/useCachedLiveQuery'
 import { lookupBarcodeAcrossSources } from '@/services/foodSources/barcodeLookupService'
@@ -198,6 +198,55 @@ function CustomFoodSheet({ barcode, existing, onCreated, onDeleted, onClose }: {
   return <Sheet fullHeight keyboardReflow onClose={onClose} title={existing ? 'Edit custom food' : 'Custom food'}><form className="space-y-3" onSubmit={(event) => void submit(event)}><label className="field-label">Food name<input className="field-input" name="name" placeholder={existing?.food.name ?? 'e.g. Protein shake'} /></label><div className="grid grid-cols-2 gap-3"><label className="field-label">Brand<input className="field-input" name="brand" placeholder={existing?.food.brand ?? 'Optional'} /></label><label className="field-label">Barcode<input className="field-input" inputMode="numeric" name="barcode" placeholder={existing?.food.barcode || barcode || 'Optional'} /></label></div><div className="grid grid-cols-2 gap-3"><label className="field-label">Label serving name<input className="field-input" name="servingName" placeholder={existingServing?.name ?? 'serving'} /></label><label className="field-label">Label serving qty<input className="field-input" inputMode="decimal" min="0.01" name="servingQuantity" placeholder={String(existingServing?.quantity ?? 1)} step="any" type="number" /></label></div><div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3"><label className="field-label">Serving weight<input className="field-input" inputMode="decimal" min="0.01" name="servingWeight" placeholder={String(grams)} step="any" type="number" /></label><label className="field-label">Unit<select className="field-input" defaultValue="g" name="servingWeightUnit"><option value="g">grams</option><option value="oz">ounces</option></select></label></div><p className="text-xs leading-5 text-slate-500">Enter calories and macros exactly as shown for this label serving. You can log any gram or ounce amount later.</p><div className="grid grid-cols-4 gap-2"><MacroInput label="Kcal" name="calories" placeholderValue={macro('ENERGY_KCAL')} /><MacroInput label="Protein" name="protein" placeholderValue={macro('PROTEIN')} /><MacroInput label="Carbs" name="carbs" placeholderValue={macro('CARBOHYDRATE')} /><MacroInput label="Fat" name="fat" placeholderValue={macro('TOTAL_FAT')} /></div><details className="rounded-xl bg-slate-800/60 px-3 py-2"><summary className="cursor-pointer text-sm font-semibold text-slate-300">More nutrients & notes</summary><div className="mt-3 grid grid-cols-3 gap-2"><MacroInput label="Fiber g" name="fiber" placeholderValue={macro('FIBER')} /><MacroInput label="Sugar g" name="sugar" placeholderValue={macro('TOTAL_SUGAR')} /><MacroInput label="Sodium mg" name="sodium" placeholderValue={macro('SODIUM')} /></div><label className="field-label mt-3">Ingredients<textarea className="field-input min-h-18" name="ingredients" placeholder={existing?.food.ingredients ?? 'Optional ingredients'} /></label><label className="field-label mt-3">Notes<textarea className="field-input min-h-18" name="notes" placeholder={existing?.food.notes ?? 'Optional notes'} /></label></details>{error && <p className="text-sm text-rose-300">{error}</p>}<button className="button-primary w-full" type="submit">{existing ? 'Save changes' : 'Save custom food'}</button>{existing && <button className="button-danger-outline w-full" type="button" onClick={() => void remove()}>Delete custom food</button>}</form></Sheet>
 }
 
+function SavedMealSheet({ existing, onClose, onCreated }: { existing?: SavedMealDetails; onClose: () => void; onCreated: (meal: SavedMealDetails) => void }) {
+  const [name, setName] = useState(existing?.meal.name ?? '')
+  const [notes, setNotes] = useState(existing?.meal.notes ?? '')
+  const [items, setItems] = useState<Array<{ food: FoodDetails; grams: string }>>(() => existing?.items.map((item) => ({ food: item.food, grams: String(item.defaultGrams) })) ?? [])
+  const [pickingFood, setPickingFood] = useState(false)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  function addFood(food: FoodDetails) {
+    setItems((current) => current.some((item) => item.food.food.id === food.food.id) ? current : [...current, { food, grams: '100' }])
+    setPickingFood(false)
+  }
+  async function save() {
+    const parsedItems = items.map((item) => ({ foodId: item.food.food.id, defaultGrams: Number(item.grams) }))
+    if (!name.trim()) return setError('Enter a meal name.')
+    if (!parsedItems.length || parsedItems.some((item) => !Number.isFinite(item.defaultGrams) || item.defaultGrams <= 0)) return setError('Add at least one food with a weight above zero.')
+    setSaving(true)
+    try {
+      const id = existing?.meal.id ?? await nutritionRepository.createSavedMeal({ name, notes, items: parsedItems })
+      if (existing) await nutritionRepository.updateSavedMeal(id, { name, notes, items: parsedItems })
+      const meal = await nutritionRepository.getSavedMealDetails(id)
+      if (meal) onCreated(meal)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to save this meal.') } finally { setSaving(false) }
+  }
+  return <>
+    <Sheet fullHeight hidden={pickingFood} keyboardReflow onClose={onClose} title={existing ? 'Edit meal' : 'Create meal'}>
+      <div className="space-y-3"><label className="field-label">Meal name<input className="field-input" onChange={(event) => setName(event.target.value)} placeholder="e.g. Burrito bowl" value={name} /></label>
+      <label className="field-label">Notes <span className="normal-case text-slate-500">(optional)</span><textarea className="field-input min-h-18" onChange={(event) => setNotes(event.target.value)} placeholder="Optional prep notes" value={notes} /></label>
+      <div><div className="flex items-center justify-between"><p className="field-label">Foods & suggested weights</p><button className="button-quiet !px-0" onClick={() => setPickingFood(true)} type="button"><Plus className="size-4" />Add food</button></div>
+      <p className="mt-1 text-xs leading-5 text-slate-500">These are defaults only. You can adjust every food’s grams before logging.</p>
+      <div className="mt-2 space-y-2">{items.map((item, index) => <div className="rounded-xl bg-slate-800/65 p-3" key={item.food.food.id}><div className="flex gap-2"><div className="min-w-0 flex-1"><strong className="block truncate text-sm text-slate-100">{foodDisplayName(item.food.food)}</strong><small>{item.food.food.brand || `${Math.round(item.food.nutrients.ENERGY_KCAL)} kcal / 100g`}</small></div><button aria-label={`Remove ${foodDisplayName(item.food.food)}`} className="set-delete-button" onClick={() => setItems((current) => current.filter((_, currentIndex) => currentIndex !== index))} type="button"><Trash2 className="size-4" /></button></div><label className="field-label mt-2">Suggested grams<input className="field-input" inputMode="decimal" min="0.01" onChange={(event) => setItems((current) => current.map((currentItem, currentIndex) => currentIndex === index ? { ...currentItem, grams: event.target.value } : currentItem))} step="any" type="number" value={item.grams} /></label></div>)}{!items.length && <p className="result-empty">Add foods from search or scan a barcode to build this meal.</p>}</div></div>
+      {error && <p className="text-sm text-rose-300">{error}</p>}<button className="button-primary w-full" disabled={saving} onClick={() => void save()} type="button">{saving ? 'Saving…' : existing ? 'Save changes' : 'Save meal'}</button></div>
+    </Sheet>
+    {pickingFood && <FoodSearchSheet allowMeals={false} onClose={() => setPickingFood(false)} onSelect={addFood} />}
+  </>
+}
+
+function SavedMealLogSheet({ date, meal, savedMeal, onBack, onEdit, onSaved }: { date: string; meal: Meal; savedMeal: SavedMealDetails; onBack: () => void; onEdit: () => void; onSaved: () => void }) {
+  const [grams, setGrams] = useState(() => Object.fromEntries(savedMeal.items.map((item) => [item.id, String(item.defaultGrams)])))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  async function logMeal(useSuggested = false) {
+    const inputs = savedMeal.items.map((item) => ({ item, grams: useSuggested ? item.defaultGrams : Number(grams[item.id]) })).filter(({ grams }) => Number.isFinite(grams) && grams > 0)
+    if (!inputs.length) return setError('Enter a weight for at least one food.')
+    setSaving(true)
+    try { await nutritionRepository.logFoods(inputs.map(({ item, grams }) => ({ date, meal, foodId: item.foodId, quantity: grams, amountUnit: 'g' }))); onSaved() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to log this meal.') } finally { setSaving(false) }
+  }
+  return <Sheet fullHeight keyboardReflow onClose={onBack} title={savedMeal.meal.name}><div className="flex items-center justify-between gap-3"><p className="text-sm leading-5 text-slate-400">Adjust each food to the amount you actually ate. Only foods with a weight above zero will be logged.</p><button aria-label={`Edit ${savedMeal.meal.name}`} className="workout-icon-button shrink-0" onClick={onEdit} type="button"><Settings className="size-4" /></button></div><div className="mt-3 space-y-2">{savedMeal.items.map((item) => { const amount = Number(grams[item.id]) || 0; const factor = amount / 100; return <div className="rounded-xl bg-slate-800/65 p-3" key={item.id}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><strong className="block truncate text-sm text-slate-100">{foodDisplayName(item.food.food)}</strong><small>{Math.round(item.food.nutrients.ENERGY_KCAL * factor)} kcal · {Math.round(item.food.nutrients.PROTEIN * factor * 10) / 10}g protein</small></div><label className="w-24 field-label">Grams<input aria-label={`${foodDisplayName(item.food.food)} grams`} className="field-input mt-1" inputMode="decimal" min="0" onChange={(event) => setGrams((current) => ({ ...current, [item.id]: event.target.value }))} step="any" type="number" value={grams[item.id]} /></label></div></div> })}</div>{error && <p className="mt-3 text-sm text-rose-300">{error}</p>}<div className="mt-5 grid grid-cols-2 gap-2"><button className="button-secondary" disabled={saving} onClick={() => void logMeal(true)}>{saving ? 'Logging…' : 'Log suggested'}</button><button className="button-primary" disabled={saving} onClick={() => void logMeal()}>{saving ? 'Logging…' : 'Done — log foods'}</button></div></Sheet>
+}
+
 function BarcodeSourceSheet({ barcode, loading, matches, onChoose, onManual, onClose }: { barcode: string; loading: boolean; matches: ExternalFood[]; onChoose: (food: ExternalFood) => void; onManual: () => void; onClose: () => void }) {
   return <Sheet onClose={onClose} title="Choose food source"><p className="mb-3 text-sm leading-5 text-slate-400">{matches.length > 1 ? `Barcode ${barcode} matched more than one database. Choose the entry whose label information looks right.` : `Found a match for ${barcode}. You can select it now while the other databases finish checking.`}</p>{loading && <p className="mb-3 rounded-xl bg-sky-300/10 px-3 py-2 text-xs font-semibold text-sky-200">Checking other enabled databases…</p>}<div className="space-y-2">{matches.map((food) => {
     const servingGrams = food.servingGrams ?? 100
@@ -206,8 +255,8 @@ function BarcodeSourceSheet({ barcode, loading, matches, onChoose, onManual, onC
   })}</div><button className="button-secondary mt-3 w-full" onClick={onManual} type="button"><Plus className="size-4" />Enter manually instead</button></Sheet>
 }
 
-function FoodSearchSheet({ hidden, onClose, onSelect }: { hidden?: boolean; onClose: () => void; onSelect: (food: FoodDetails) => void }) {
-  const [tab, setTab] = useState<'all' | 'favorites' | 'custom'>('all')
+function FoodSearchSheet({ hidden, onClose, onSelect, onSelectMeal, onCreateMeal, allowMeals = true }: { hidden?: boolean; onClose: () => void; onSelect: (food: FoodDetails) => void; onSelectMeal?: (meal: SavedMealDetails) => void; onCreateMeal?: () => void; allowMeals?: boolean }) {
+  const [tab, setTab] = useState<'all' | 'favorites' | 'meals' | 'custom'>('all')
   const [query, setQuery] = useState('')
   const [usdaResults, setUsdaResults] = useState<FoodSearchResult[]>([])
   const [message, setMessage] = useState('')
@@ -221,6 +270,7 @@ function FoodSearchSheet({ hidden, onClose, onSelect }: { hidden?: boolean; onCl
   const favorites = useLiveQuery(() => nutritionRepository.getFavorites(), [])
   const recents = useLiveQuery(() => nutritionRepository.getRecents(50), [])
   const customFoods = useLiveQuery(() => nutritionRepository.getCustomFoods(), [])
+  const savedMeals = useLiveQuery(() => allowMeals ? nutritionRepository.getSavedMeals() : Promise.resolve([]), [allowMeals])
   const cleanQuery = query.trim().toLocaleLowerCase()
   const matchesQuery = (food: FoodDetails) => !cleanQuery || [foodDisplayName(food.food), food.food.name, food.food.brand].some((value) => value?.toLocaleLowerCase().includes(cleanQuery))
   const scopedFoods = tab === 'favorites'
@@ -228,12 +278,14 @@ function FoodSearchSheet({ hidden, onClose, onSelect }: { hidden?: boolean; onCl
     : tab === 'custom'
       ? (customFoods ?? []).filter(matchesQuery)
       : cleanQuery ? (localMatches ?? []) : (recents ?? [])
-  const resultRows: Array<{ type: 'local'; food: FoodDetails } | { type: 'usda'; result: FoodSearchResult }> = [
+  const mealRows = tab === 'meals' ? (savedMeals ?? []).filter((item) => !cleanQuery || item.meal.name.toLocaleLowerCase().includes(cleanQuery)) : []
+  const resultRows: Array<{ type: 'local'; food: FoodDetails } | { type: 'savedMeal'; meal: SavedMealDetails } | { type: 'usda'; result: FoodSearchResult }> = [
     ...scopedFoods.map((food) => ({ type: 'local' as const, food })),
+    ...mealRows.map((meal) => ({ type: 'savedMeal' as const, meal })),
     ...(tab === 'all' && cleanQuery.length >= 3 ? usdaResults.map((result) => ({ type: 'usda' as const, result })) : [])
   ]
   const pagedResults = useIncrementalItems(resultRows, 25, `${tab}:${cleanQuery}`)
-  const placeholder = tab === 'all' ? 'Search all foods' : tab === 'favorites' ? 'Search favorites' : 'Search custom foods'
+  const placeholder = tab === 'all' ? 'Search all foods' : tab === 'favorites' ? 'Search favorites' : tab === 'meals' ? 'Search meals' : 'Search custom foods'
 
   useEffect(() => {
     setUsdaResults([])
@@ -320,14 +372,16 @@ function FoodSearchSheet({ hidden, onClose, onSelect }: { hidden?: boolean; onCl
   }
   return <Sheet fullHeight hidden={hidden} onClose={onClose} title="Add food">
     <div className="food-search-row"><div className="food-search-field"><Search aria-hidden="true" /><input aria-label={placeholder} className="field-input" onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} type="search" value={query} /></div><button aria-label="Scan barcode" className="food-barcode-button" disabled={barcodeLoading} onClick={() => setScanning(true)}><Barcode aria-hidden="true" /></button></div>
-    <div aria-label="Food list" className="food-search-tabs" role="tablist">{(['all', 'favorites', 'custom'] as const).map((item) => <button aria-selected={tab === item} className={`food-search-tab ${tab === item ? 'food-search-tab-active' : ''}`} key={item} onClick={() => setTab(item)} role="tab" type="button">{item === 'all' ? 'All' : item === 'favorites' ? 'Favorites' : 'Custom'}</button>)}</div>
-    <button className="button-quiet mt-2" onClick={() => setCustomBarcode('')}><Plus className="size-4" />Create custom food</button>
+    <div aria-label="Food list" className="food-search-tabs" role="tablist">{(['all', 'favorites', ...(allowMeals ? ['meals' as const] : []), 'custom'] as const).map((item) => <button aria-selected={tab === item} className={`food-search-tab ${tab === item ? 'food-search-tab-active' : ''}`} key={item} onClick={() => setTab(item)} role="tab" type="button">{item === 'all' ? 'All' : item === 'favorites' ? 'Favorites' : item === 'meals' ? 'Meals' : 'Custom'}</button>)}</div>
+    {tab === 'meals' ? <button className="button-quiet mt-2" onClick={onCreateMeal} type="button"><Plus className="size-4" />Create meal</button> : <button className="button-quiet mt-2" onClick={() => setCustomBarcode('')}><Plus className="size-4" />Create custom food</button>}
     {message && <p className="mt-3 rounded-xl bg-amber-300/10 px-3 py-2.5 text-sm leading-5 text-amber-100">{message}</p>}
     <div className="food-tab-results mt-3" role="tabpanel">
       {pagedResults.visibleItems.map((item) => item.type === 'local'
         ? <ResultRow food={item.food} key={`local:${item.food.food.id}`} onPick={onSelect} />
+        : item.type === 'savedMeal'
+          ? <button className="food-result w-full text-left" key={`saved-meal:${item.meal.meal.id}`} onClick={() => onSelectMeal?.(item.meal)}><span className="min-w-0 flex-1"><strong>{item.meal.meal.name}</strong><small>{item.meal.items.length} food{item.meal.items.length === 1 ? '' : 's'} · {item.meal.items.map((component) => foodDisplayName(component.food.food)).join(', ')}</small></span><ChevronRight className="size-4 text-slate-500" /></button>
         : <button className="food-result w-full text-left" key={`usda:${item.result.sourceFoodId}`} onClick={() => void selectUsda(item.result)}><span className="min-w-0 flex-1"><strong>{item.result.name}</strong><small>{item.result.brand ? `${item.result.brand} · ` : ''}USDA</small></span><ChevronRight className="size-4 text-slate-500" /></button>)}
-      {resultRows.length === 0 && <p className="result-empty">{cleanQuery ? `No ${tab === 'all' ? 'food' : tab} matches yet.` : tab === 'all' ? 'Foods you log will appear here in recent-history order.' : tab === 'favorites' ? 'Favorite a food for fast access.' : 'Create a custom food to see it here.'}</p>}
+      {resultRows.length === 0 && <p className="result-empty">{cleanQuery ? `No ${tab === 'all' ? 'food' : tab} matches yet.` : tab === 'all' ? 'Foods you log will appear here in recent-history order.' : tab === 'favorites' ? 'Favorite a food for fast access.' : tab === 'meals' ? 'Create a saved meal to log its foods together.' : 'Create a custom food to see it here.'}</p>}
     </div>
     <LoadMoreButton onClick={pagedResults.showMore} shown={pagedResults.shown} total={pagedResults.total} />
     {scanning && <BarcodeScanner onClose={() => setScanning(false)} onDetected={(value) => void onBarcode(value)} />}
@@ -342,6 +396,9 @@ export function NutritionPage() {
   const [selectedFood, setSelectedFood] = useState<FoodDetails | undefined>()
   const [editingFood, setEditingFood] = useState<FoodDetails | undefined>()
   const [editingLog, setEditingLog] = useState<FoodLogEntry | undefined>()
+  const [savedMeal, setSavedMeal] = useState<SavedMealDetails | undefined>()
+  const [creatingSavedMeal, setCreatingSavedMeal] = useState(false)
+  const [editingSavedMeal, setEditingSavedMeal] = useState<SavedMealDetails | undefined>()
   const [summaryMode, setSummaryMode] = useState<'consumed' | 'remaining'>('consumed')
   const [showBreakdown, setShowBreakdown] = useState(false)
   const [expandedMeals, setExpandedMeals] = useState<Set<Meal>>(new Set())
@@ -376,6 +433,7 @@ export function NutritionPage() {
     setExpandedMeals((current) => new Set(current).add(mealKey))
     setEditingLog(undefined)
     setSelectedFood(undefined)
+    setSavedMeal(undefined)
     setMeal(mealKey)
   }
 
@@ -417,6 +475,9 @@ export function NutritionPage() {
     setEditingFood(undefined)
     setEditingLog(undefined)
     setSelectedFood(undefined)
+    setSavedMeal(undefined)
+    setCreatingSavedMeal(false)
+    setEditingSavedMeal(undefined)
     setMeal(undefined)
   }
 
@@ -511,8 +572,11 @@ export function NutritionPage() {
       })}
     </div>
 
-    {meal && <FoodSearchSheet hidden={Boolean(selectedFood)} onClose={closeFoodFlow} onSelect={setSelectedFood} />}
+    {meal && <FoodSearchSheet hidden={Boolean(selectedFood || savedMeal || creatingSavedMeal || editingSavedMeal)} onClose={closeFoodFlow} onCreateMeal={() => setCreatingSavedMeal(true)} onSelect={setSelectedFood} onSelectMeal={setSavedMeal} />}
     {selectedFood && (meal || editingLog) && <FoodLogSheet date={editingLog?.date ?? key} entry={editingLog} food={selectedFood} key={editingLog?.id ?? selectedFood.food.id} meal={editingLog?.meal ?? meal!} onBack={() => { if (editingLog) closeFoodFlow(); else setSelectedFood(undefined) }} onEdit={setEditingFood} onSaved={closeFoodFlow} />}
     {editingFood && <CustomFoodSheet existing={editingFood} onClose={() => setEditingFood(undefined)} onCreated={(food) => { setEditingFood(undefined); setSelectedFood(food) }} onDeleted={closeFoodFlow} />}
+    {creatingSavedMeal && <SavedMealSheet onClose={() => setCreatingSavedMeal(false)} onCreated={(newMeal) => { setCreatingSavedMeal(false); setSavedMeal(newMeal) }} />}
+    {editingSavedMeal && <SavedMealSheet existing={editingSavedMeal} onClose={() => setEditingSavedMeal(undefined)} onCreated={(updatedMeal) => { setEditingSavedMeal(undefined); setSavedMeal(updatedMeal) }} />}
+    {savedMeal && meal && <SavedMealLogSheet date={key} meal={meal} savedMeal={savedMeal} onBack={() => setSavedMeal(undefined)} onEdit={() => setEditingSavedMeal(savedMeal)} onSaved={closeFoodFlow} />}
   </div>
 }

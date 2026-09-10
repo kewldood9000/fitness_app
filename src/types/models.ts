@@ -87,6 +87,19 @@ export interface FoodLogEntry extends Timestamped {
   fat: number
 }
 
+/** A saved collection of foods with suggested gram amounts. */
+export interface SavedMeal extends Timestamped {
+  name: string
+  notes?: string
+}
+
+export interface SavedMealItem extends Timestamped {
+  savedMealId: string
+  foodId: string
+  defaultGrams: number
+  order: number
+}
+
 export interface Exercise extends Timestamped {
   name: string
   primaryMuscle: string

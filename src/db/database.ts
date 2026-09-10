@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
-import { migrateToV1, migrateToV2, migrateToV3 } from './migrations'
-import { schemaV1, schemaV2, schemaV3 } from './schema'
+import { migrateToV1, migrateToV2, migrateToV3, migrateToV4 } from './migrations'
+import { schemaV1, schemaV2, schemaV3, schemaV4 } from './schema'
 import { createBuiltinExercises } from './seed/exerciseCatalog'
 import type {
   AppMetadata,
@@ -14,6 +14,8 @@ import type {
   LocalCredential,
   Nutrient,
   Serving,
+  SavedMeal,
+  SavedMealItem,
   WeightLog,
   WorkoutSchedule,
   WorkoutSession,
@@ -35,6 +37,8 @@ class FitnessDatabase extends Dexie {
   favorites!: EntityTable<FoodReference, 'id'>
   recentFoods!: EntityTable<FoodReference, 'id'>
   foodLogs!: EntityTable<FoodLogEntry, 'id'>
+  savedMeals!: EntityTable<SavedMeal, 'id'>
+  savedMealItems!: EntityTable<SavedMealItem, 'id'>
   exercises!: EntityTable<Exercise, 'id'>
   workoutTemplates!: EntityTable<WorkoutTemplate, 'id'>
   workoutTemplateExercises!: EntityTable<WorkoutTemplateExercise, 'id'>
@@ -50,6 +54,7 @@ class FitnessDatabase extends Dexie {
     this.version(1).stores(schemaV1).upgrade(migrateToV1)
     this.version(2).stores(schemaV2).upgrade(migrateToV2)
     this.version(3).stores(schemaV3).upgrade(migrateToV3)
+    this.version(4).stores(schemaV4).upgrade(migrateToV4)
   }
 }
 

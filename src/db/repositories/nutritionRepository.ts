@@ -1,5 +1,5 @@
 import { db } from '@/db/database'
-import type { Food, FoodLogEntry, FoodNutrient, FoodReference, FoodSource, Meal, Serving } from '@/types/models'
+import type { Food, FoodLogEntry, FoodNutrient, FoodReference, FoodSource, Meal, SavedMeal, SavedMealItem, Serving } from '@/types/models'
 
 export const nutrientCodes = ['ENERGY_KCAL', 'PROTEIN', 'CARBOHYDRATE', 'TOTAL_FAT', 'FIBER', 'TOTAL_SUGAR', 'SODIUM'] as const
 export type NutrientCode = (typeof nutrientCodes)[number]
@@ -46,6 +46,17 @@ export interface CustomFoodInput {
 export interface DayNutrition {
   entries: FoodLogEntry[]
   totals: MacroValues
+}
+
+export interface SavedMealDetails {
+  meal: SavedMeal
+  items: Array<SavedMealItem & { food: FoodDetails }>
+}
+
+export interface SavedMealInput {
+  name: string
+  notes?: string
+  items: Array<{ foodId: string; defaultGrams: number }>
 }
 
 export type FoodAmountUnit = 'serving' | 'g' | 'oz'
@@ -191,6 +202,58 @@ export const nutritionRepository = {
       .sort((first, second) => first.food.name.localeCompare(second.food.name, undefined, { sensitivity: 'base' }))
   },
 
+  async getSavedMeals(): Promise<SavedMealDetails[]> {
+    const meals = await db.savedMeals.orderBy('name').toArray()
+    return Promise.all(meals.map((meal) => nutritionRepository.getSavedMealDetails(meal.id))).then((items) => items.filter((item): item is SavedMealDetails => Boolean(item)))
+  },
+
+  async getSavedMealDetails(savedMealId: string): Promise<SavedMealDetails | undefined> {
+    const meal = await db.savedMeals.get(savedMealId)
+    if (!meal) return undefined
+    const itemRecords = await db.savedMealItems.where('savedMealId').equals(savedMealId).sortBy('order')
+    const items = (await Promise.all(itemRecords.map(async (item) => {
+      const food = await nutritionRepository.getFoodDetails(item.foodId)
+      return food ? { ...item, food } : undefined
+    }))).filter((item): item is SavedMealItem & { food: FoodDetails } => Boolean(item))
+    return { meal, items }
+  },
+
+  async createSavedMeal(input: SavedMealInput): Promise<string> {
+    const name = input.name.trim()
+    const items = input.items.filter((item) => item.foodId && Number.isFinite(item.defaultGrams) && item.defaultGrams > 0)
+    if (!name) throw new Error('Enter a meal name.')
+    if (!items.length) throw new Error('Add at least one food to this meal.')
+    const timestamp = now()
+    const id = newId()
+    await db.transaction('rw', db.savedMeals, db.savedMealItems, async () => {
+      await db.savedMeals.add({ id, name, notes: input.notes?.trim() || undefined, createdAt: timestamp, updatedAt: timestamp })
+      await db.savedMealItems.bulkAdd(items.map((item, order) => ({ id: newId(), savedMealId: id, foodId: item.foodId, defaultGrams: item.defaultGrams, order, createdAt: timestamp, updatedAt: timestamp })))
+    })
+    return id
+  },
+
+  async updateSavedMeal(savedMealId: string, input: SavedMealInput): Promise<void> {
+    const existing = await db.savedMeals.get(savedMealId)
+    if (!existing) throw new Error('This saved meal is no longer available.')
+    const name = input.name.trim()
+    const items = input.items.filter((item) => item.foodId && Number.isFinite(item.defaultGrams) && item.defaultGrams > 0)
+    if (!name) throw new Error('Enter a meal name.')
+    if (!items.length) throw new Error('Add at least one food to this meal.')
+    const timestamp = now()
+    await db.transaction('rw', db.savedMeals, db.savedMealItems, async () => {
+      await db.savedMeals.put({ ...existing, name, notes: input.notes?.trim() || undefined, updatedAt: timestamp })
+      await db.savedMealItems.where('savedMealId').equals(savedMealId).delete()
+      await db.savedMealItems.bulkAdd(items.map((item, order) => ({ id: newId(), savedMealId, foodId: item.foodId, defaultGrams: item.defaultGrams, order, createdAt: timestamp, updatedAt: timestamp })))
+    })
+  },
+
+  async deleteSavedMeal(savedMealId: string): Promise<void> {
+    await db.transaction('rw', db.savedMeals, db.savedMealItems, async () => {
+      await db.savedMeals.delete(savedMealId)
+      await db.savedMealItems.where('savedMealId').equals(savedMealId).delete()
+    })
+  },
+
   async setFavorite(foodId: string, favorite: boolean): Promise<void> {
     const timestamp = now()
     if (!favorite) {
@@ -291,7 +354,7 @@ export const nutritionRepository = {
   async deleteCustomFood(foodId: string): Promise<void> {
     const food = await db.foods.get(foodId)
     if (!food || food.source !== 'CUSTOM') throw new Error('Only custom foods can be deleted.')
-    await db.transaction('rw', [db.foods, db.servings, db.foodNutrients, db.barcodeMappings, db.favorites, db.recentFoods], async () => {
+    await db.transaction('rw', [db.foods, db.servings, db.foodNutrients, db.barcodeMappings, db.favorites, db.recentFoods, db.savedMealItems], async () => {
       const mappings = await db.barcodeMappings.where('foodId').equals(foodId).toArray()
       await Promise.all([
         db.foods.delete(foodId),
@@ -299,6 +362,7 @@ export const nutritionRepository = {
         db.foodNutrients.where('foodId').equals(foodId).delete(),
         db.favorites.delete(foodId),
         db.recentFoods.delete(foodId),
+        db.savedMealItems.where('foodId').equals(foodId).delete(),
         ...mappings.map((mapping) => db.barcodeMappings.delete(mapping.id))
       ])
     })
@@ -343,6 +407,21 @@ export const nutritionRepository = {
     const existingRecent = await db.recentFoods.get(details.food.id)
     const recent: FoodReference = existingRecent ? { ...existingRecent, updatedAt: timestamp } : { id: details.food.id, foodId: details.food.id, createdAt: timestamp, updatedAt: timestamp }
     await db.transaction('rw', db.foodLogs, db.recentFoods, async () => { await db.foodLogs.add(entry); await db.recentFoods.put(recent) })
+  },
+
+  async logFoods(inputs: FoodLogInput[]): Promise<void> {
+    const validInputs = inputs.filter((input) => input.quantity > 0)
+    const details = await Promise.all(validInputs.map((input) => nutritionRepository.getFoodDetails(input.foodId)))
+    if (details.some((item) => !item)) throw new Error('One of these foods is no longer available.')
+    const timestamp = now()
+    const entries = validInputs.map((input, index) => buildFoodLogEntry(details[index]!, input, newId(), timestamp, timestamp))
+    await db.transaction('rw', db.foodLogs, db.recentFoods, async () => {
+      await db.foodLogs.bulkAdd(entries)
+      await db.recentFoods.bulkPut(details.map((item) => {
+        const foodId = item!.food.id
+        return { id: foodId, foodId, createdAt: timestamp, updatedAt: timestamp }
+      }))
+    })
   },
 
   async updateFoodLog(id: string, input: FoodLogInput): Promise<void> {

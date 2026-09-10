@@ -19,3 +19,8 @@ export async function migrateToV2(transaction: Transaction): Promise<void> {
 export async function migrateToV3(transaction: Transaction): Promise<void> {
   await transaction.table('exercises').bulkPut(createBuiltinExercises(new Date().toISOString()))
 }
+
+/** Adds saved meal templates; existing food logs remain individual entries. */
+export async function migrateToV4(transaction: Transaction): Promise<void> {
+  void transaction
+}
