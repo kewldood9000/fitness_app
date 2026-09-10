@@ -91,6 +91,8 @@ export interface FoodLogEntry extends Timestamped {
 export interface SavedMeal extends Timestamped {
   name: string
   notes?: string
+  /** Updated after the saved meal is logged, for quick-picker ordering. */
+  lastUsedAt?: string
 }
 
 export interface SavedMealItem extends Timestamped {

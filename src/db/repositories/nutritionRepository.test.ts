@@ -136,4 +136,14 @@ describe('saved meals', () => {
     expect(await nutritionRepository.getSavedMealDetails(savedMealId)).toMatchObject({ meal: { id: savedMealId, name: 'Burrito bowl', notes: 'Meal prep' } })
     expect((await nutritionRepository.getSavedMealDetails(savedMealId))?.items.map((item) => item.defaultGrams)).toEqual([180, 90])
   })
+
+  it('lists only saved meals in most-recently-used order', async () => {
+    const rice = await nutritionRepository.createCustomFood({ name: 'Rice', servingName: 'serving', servingQuantity: 1, servingGrams: 100, macros })
+    const older = await nutritionRepository.createSavedMeal({ name: 'Older meal', items: [{ foodId: rice, defaultGrams: 100 }] })
+    const recent = await nutritionRepository.createSavedMeal({ name: 'Recent meal', items: [{ foodId: rice, defaultGrams: 100 }] })
+    await db.savedMeals.update(older, { lastUsedAt: '2026-08-20T12:00:00.000Z' })
+    await db.savedMeals.update(recent, { lastUsedAt: '2026-08-25T12:00:00.000Z' })
+
+    expect((await nutritionRepository.getSavedMeals()).map((item) => item.meal.name)).toEqual(['Recent meal', 'Older meal'])
+  })
 })

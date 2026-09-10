@@ -203,7 +203,9 @@ export const nutritionRepository = {
   },
 
   async getSavedMeals(): Promise<SavedMealDetails[]> {
-    const meals = await db.savedMeals.orderBy('name').toArray()
+    const meals = (await db.savedMeals.toArray()).sort((first, second) =>
+      (second.lastUsedAt ?? second.updatedAt).localeCompare(first.lastUsedAt ?? first.updatedAt)
+    )
     return Promise.all(meals.map((meal) => nutritionRepository.getSavedMealDetails(meal.id))).then((items) => items.filter((item): item is SavedMealDetails => Boolean(item)))
   },
 
@@ -252,6 +254,14 @@ export const nutritionRepository = {
       await db.savedMeals.delete(savedMealId)
       await db.savedMealItems.where('savedMealId').equals(savedMealId).delete()
     })
+  },
+
+  async markSavedMealUsed(savedMealId: string): Promise<void> {
+    const meal = await db.savedMeals.get(savedMealId)
+    if (meal) {
+      const timestamp = now()
+      await db.savedMeals.put({ ...meal, lastUsedAt: timestamp, updatedAt: timestamp })
+    }
   },
 
   async setFavorite(foodId: string, favorite: boolean): Promise<void> {
